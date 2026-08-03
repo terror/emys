@@ -1,19 +1,19 @@
 use {
   anyhow::{Context, Error, bail},
+  arguments::Arguments,
   clap::{Parser, ValueEnum},
+  database::Database,
+  execution::Execution,
   rusqlite::{Connection, MAIN_DB, params},
+  shell::Shell,
   std::{
     env, fs,
     path::{Path, PathBuf},
     process,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
-  uuid::Uuid,
-};
-
-use {
-  arguments::Arguments, database::Database, execution::Execution, shell::Shell,
   subcommand::Subcommand,
+  uuid::Uuid,
 };
 
 #[cfg(unix)]
