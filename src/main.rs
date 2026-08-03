@@ -4,11 +4,16 @@ use {
   clap::{Parser, ValueEnum},
   database::Database,
   execution::Execution,
+  identity::Identity,
+  importer::{Importer, Zsh},
+  parsed_execution::ParsedExecution,
   rusqlite::{Connection, MAIN_DB, params},
   std::{
+    collections::HashMap,
     env, fs,
+    iter::once,
     path::{Path, PathBuf},
-    process,
+    process, str,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
   subcommand::Subcommand,
@@ -25,6 +30,9 @@ use {
 mod arguments;
 mod database;
 mod execution;
+mod identity;
+mod importer;
+mod parsed_execution;
 mod subcommand;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
