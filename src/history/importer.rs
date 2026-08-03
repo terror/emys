@@ -21,25 +21,27 @@ pub(super) trait Importer {
     })?;
 
     let mut occurrences = HashMap::new();
-    let mut records = Vec::with_capacity(entries.len());
 
-    for entry in entries {
-      let occurrence =
-        occurrences.entry(entry.identity.clone()).or_insert(0_u64);
+    let records = entries
+      .into_iter()
+      .map(|entry| {
+        let occurrence =
+          occurrences.entry(entry.identity.clone()).or_insert(0_u64);
 
-      *occurrence = occurrence
-        .checked_add(1)
-        .context("history occurrence count overflowed")?;
+        *occurrence = occurrence
+          .checked_add(1)
+          .context("history occurrence count overflowed")?;
 
-      let mut execution = entry.execution;
+        let mut execution = entry.execution;
 
-      execution.shell = Some(Self::FORMAT.into());
+        execution.shell = Some(Self::FORMAT.into());
 
-      records.push((
-        identifier(Self::FORMAT, &entry.identity, *occurrence),
-        execution,
-      ));
-    }
+        Ok((
+          identifier(Self::FORMAT, &entry.identity, *occurrence),
+          execution,
+        ))
+      })
+      .collect::<anyhow::Result<Vec<_>>>()?;
 
     let inserted = database.import(&records)?;
 
