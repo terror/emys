@@ -68,6 +68,7 @@ fn add() {
 #[test]
 fn backup() {
   let directory = tempdir().unwrap();
+
   let binary = env!("CARGO_BIN_EXE_emys");
   let path = directory.path().join("foo/bar/emys.sqlite");
 

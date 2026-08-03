@@ -345,8 +345,11 @@ mod tests {
   #[test]
   fn backup_copies_executions_while_source_remains_open() {
     let root = tempfile::tempdir().unwrap();
-    let source = root.path().join("foo/source.db");
-    let destination = root.path().join("bar/backup.db");
+
+    let (source, destination) = (
+      root.path().join("foo/source.db"),
+      root.path().join("bar/backup.db"),
+    );
 
     fs::create_dir_all(source.parent().unwrap()).unwrap();
 
@@ -422,8 +425,10 @@ mod tests {
   #[test]
   fn backup_refuses_existing_destination_unless_forced() {
     let root = tempfile::tempdir().unwrap();
-    let source = root.path().join("source.db");
-    let destination = root.path().join("backup.db");
+
+    let (source, destination) =
+      (root.path().join("source.db"), root.path().join("backup.db"));
+
     let database = Database::open(source).unwrap();
 
     database
