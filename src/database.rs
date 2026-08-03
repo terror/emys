@@ -8,11 +8,7 @@ impl Database {
   const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
 
-  pub(crate) fn backup(&self, path: impl AsRef<Path>) -> Result {
-    self.backup_inner(path.as_ref(), false)
-  }
-
-  fn backup_inner(&self, path: &Path, force: bool) -> Result {
+  pub(crate) fn backup(&self, path: &Path, force: bool) -> Result {
     let parent = path
       .parent()
       .filter(|parent| !parent.as_os_str().is_empty())
@@ -75,10 +71,6 @@ impl Database {
   #[cfg(test)]
   pub(crate) fn connection(&self) -> &Connection {
     &self.connection
-  }
-
-  pub(crate) fn force_backup(&self, path: impl AsRef<Path>) -> Result {
-    self.backup_inner(path.as_ref(), true)
   }
 
   pub(crate) fn import(&self, records: &[(Uuid, Execution)]) -> Result<usize> {
@@ -423,7 +415,7 @@ mod tests {
       })
       .unwrap();
 
-    database.backup(&destination).unwrap();
+    database.backup(&destination, false).unwrap();
 
     database
       .insert(&Execution {
@@ -490,7 +482,7 @@ mod tests {
       })
       .unwrap();
 
-    database.backup(&destination).unwrap();
+    database.backup(&destination, false).unwrap();
 
     database
       .insert(&Execution {
@@ -500,14 +492,17 @@ mod tests {
       .unwrap();
 
     assert_eq!(
-      database.backup(&destination).unwrap_err().to_string(),
+      database
+        .backup(&destination, false)
+        .unwrap_err()
+        .to_string(),
       format!(
         "backup `{}` already exists; use --force to overwrite it",
         destination.display(),
       ),
     );
 
-    database.force_backup(&destination).unwrap();
+    database.backup(&destination, true).unwrap();
 
     assert_eq!(
       Database::open(destination)

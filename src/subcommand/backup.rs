@@ -10,10 +10,6 @@ pub(crate) struct Backup {
 
 impl Backup {
   pub(crate) fn run(self, database: &Database) -> Result {
-    if self.force {
-      database.force_backup(self.path)
-    } else {
-      database.backup(self.path)
-    }
+    database.backup(&self.path, self.force)
   }
 }
