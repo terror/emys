@@ -18,14 +18,9 @@ fn init(binary: &str, directory: &Path) -> Output {
     .unwrap()
 }
 
-#[test]
-fn add_and_list() {
-  let directory = tempdir().unwrap();
-
-  let binary = env!("CARGO_BIN_EXE_emys");
-
-  let add = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
+fn record(binary: &str, directory: &Path) -> Output {
+  Command::new(binary)
+    .env("XDG_DATA_HOME", directory)
     .args([
       "add",
       "--directory",
@@ -46,7 +41,16 @@ fn add_and_list() {
       "foo",
     ])
     .output()
-    .unwrap();
+    .unwrap()
+}
+
+#[test]
+fn add() {
+  let directory = tempdir().unwrap();
+
+  let binary = env!("CARGO_BIN_EXE_emys");
+
+  let add = record(binary, directory.path());
 
   assert_eq!(
     (
@@ -55,21 +59,6 @@ fn add_and_list() {
       String::from_utf8(add.stderr).unwrap(),
     ),
     (true, String::new(), String::new()),
-  );
-
-  let list = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["list", "--limit", "1"])
-    .output()
-    .unwrap();
-
-  assert_eq!(
-    (
-      list.status.success(),
-      String::from_utf8(list.stdout).unwrap(),
-      String::from_utf8(list.stderr).unwrap(),
-    ),
-    (true, "1\t0\tfoo\n".into(), String::new()),
   );
 }
 
@@ -124,6 +113,54 @@ fn init_zsh() {
       String::from_utf8(output.stderr).unwrap(),
     ),
     (true, String::new(), String::new()),
+  );
+}
+
+#[test]
+fn list() {
+  let directory = tempdir().unwrap();
+
+  let binary = env!("CARGO_BIN_EXE_emys");
+
+  assert!(record(binary, directory.path()).status.success());
+
+  let list = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["list", "--limit", "1"])
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      list.status.success(),
+      String::from_utf8(list.stdout).unwrap(),
+      String::from_utf8(list.stderr).unwrap(),
+    ),
+    (true, "1\t0\tfoo\n".into(), String::new()),
+  );
+}
+
+#[test]
+fn search() {
+  let directory = tempdir().unwrap();
+
+  let binary = env!("CARGO_BIN_EXE_emys");
+
+  assert!(record(binary, directory.path()).status.success());
+
+  let search = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["search", "--limit", "20", "FO"])
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      search.status.success(),
+      String::from_utf8(search.stdout).unwrap(),
+      String::from_utf8(search.stderr).unwrap(),
+    ),
+    (true, "1\t0\tfoo\n".into(), String::new()),
   );
 }
 
