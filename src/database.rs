@@ -1,44 +1,13 @@
 use super::*;
 
-const SCHEMA_VERSION: i64 = 1;
-
-const SCHEMA: &str = "
-  BEGIN;
-
-  CREATE TABLE executions (
-    id            TEXT PRIMARY KEY NOT NULL,
-    command       TEXT NOT NULL CHECK (command <> ''),
-    timestamp_ns  INTEGER NOT NULL,
-    duration_ns   INTEGER CHECK (duration_ns IS NULL OR duration_ns >= 0),
-    exit_code     INTEGER,
-    directory     TEXT,
-    session       TEXT,
-    hostname      TEXT,
-    shell         TEXT
-  ) STRICT;
-
-  CREATE INDEX executions_timestamp
-  ON executions (timestamp_ns DESC);
-
-  CREATE INDEX executions_directory_timestamp
-  ON executions (directory, timestamp_ns DESC);
-
-  CREATE INDEX executions_session_timestamp
-  ON executions (session, timestamp_ns DESC);
-
-  CREATE INDEX executions_hostname_timestamp
-  ON executions (hostname, timestamp_ns DESC);
-
-  PRAGMA user_version = 1;
-
-  COMMIT;
-";
-
 pub(crate) struct Database {
   connection: Connection,
 }
 
 impl Database {
+  const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_initial.sql")];
+  const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
+
   pub(crate) fn backup(&self, path: impl AsRef<Path>) -> Result {
     self.backup_inner(path.as_ref(), false)
   }
@@ -374,18 +343,48 @@ impl Database {
 impl TryFrom<Connection> for Database {
   type Error = Error;
 
-  fn try_from(connection: Connection) -> Result<Self> {
+  fn try_from(mut connection: Connection) -> Result<Self> {
     connection.busy_timeout(Duration::from_secs(5))?;
+
     connection.pragma_update(None, "journal_mode", "WAL")?;
 
-    match connection.query_row("PRAGMA user_version", [], |row| row.get(0))? {
-      0 => connection.execute_batch(SCHEMA)?,
-      SCHEMA_VERSION => {}
-      version => bail!(
+    let version: i64 =
+      connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+
+    let Ok(version) = usize::try_from(version) else {
+      bail!(
+        "database schema version {version} is unsupported; expected {}",
+        Self::SCHEMA_VERSION,
+      );
+    };
+
+    if version > Self::SCHEMA_VERSION {
+      bail!(
         "database schema version {version} is unsupported; expected \
-         {SCHEMA_VERSION}"
-      ),
+         {}",
+        Self::SCHEMA_VERSION,
+      );
     }
+
+    let transaction = connection.transaction()?;
+
+    for (version, migration) in
+      Self::MIGRATIONS.iter().enumerate().skip(version)
+    {
+      let version = version + 1;
+
+      transaction.execute_batch(migration).with_context(|| {
+        format!("failed to apply database migration {version}")
+      })?;
+
+      transaction.pragma_update(
+        None,
+        "user_version",
+        i64::try_from(version)?,
+      )?;
+    }
+
+    transaction.commit()?;
 
     Ok(Self { connection })
   }
@@ -709,7 +708,7 @@ mod tests {
         .connection()
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .unwrap(),
-      SCHEMA_VERSION,
+      i64::try_from(Database::SCHEMA_VERSION).unwrap(),
     );
   }
 
