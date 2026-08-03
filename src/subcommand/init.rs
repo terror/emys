@@ -7,8 +7,6 @@ pub(crate) struct Init {
 
 impl Init {
   pub(crate) fn run(self, _database: &Database) {
-    match self.shell {
-      Shell::Zsh => print!("{}", include_str!("init.zsh")),
-    }
+    print!("{}", self.shell.init());
   }
 }
