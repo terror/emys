@@ -13,7 +13,126 @@ impl Importer for Zsh {
   const NAME: &'static str = "Zsh";
 
   fn parse(contents: &[u8]) -> Result<Vec<ImportedExecution>> {
-    parse_history(contents)
+    let contents =
+      str::from_utf8(contents).context("zsh history is not valid UTF-8")?;
+
+    let nanoseconds = |value: &str, field: &str, line: usize| -> Result<i64> {
+      value
+        .parse::<u64>()
+        .ok()
+        .and_then(|value| value.checked_mul(NANOSECONDS_PER_SECOND))
+        .and_then(|value| i64::try_from(value).ok())
+        .with_context(|| {
+          format!("{field} on history line {line} overflows nanoseconds")
+        })
+    };
+
+    let (_, _, records) = contents
+      .split_inclusive('\n')
+      .enumerate()
+      .map(Some)
+      .chain(once(None))
+      .try_fold(
+        (
+          None::<(usize, String)>,
+          0_i64,
+          Vec::<ImportedExecution>::new(),
+        ),
+        |(mut current, mut plain_timestamp_ns, mut records),
+         physical|
+         -> Result<_> {
+          let completed = match physical {
+            Some((index, physical)) => {
+              let has_newline = physical.ends_with('\n');
+
+              let physical = physical.strip_suffix('\n').unwrap_or(physical);
+
+              let continued = has_newline && physical.ends_with('\\');
+
+              let (_, command) =
+                current.get_or_insert_with(|| (index + 1, String::new()));
+
+              if continued {
+                command.push_str(
+                  physical
+                    .strip_suffix('\\')
+                    .expect("continued line ends with a backslash"),
+                );
+
+                command.push('\n');
+                None
+              } else {
+                command.push_str(physical);
+
+                current.take().filter(|(_, command)| !command.is_empty())
+              }
+            }
+
+            None => current.take().filter(|(_, command)| !command.is_empty()),
+          };
+
+          let Some((line, command)) = completed else {
+            return Ok((current, plain_timestamp_ns, records));
+          };
+
+          let extended = command
+            .strip_prefix(": ")
+            .and_then(|metadata| {
+              let (timestamp, metadata) = metadata.split_once(':')?;
+              let (duration, command) = metadata.split_once(';')?;
+              Some((timestamp, duration, command))
+            })
+            .filter(|(timestamp, duration, _)| {
+              !timestamp.is_empty()
+                && !duration.is_empty()
+                && timestamp.bytes().all(|byte| byte.is_ascii_digit())
+                && duration.bytes().all(|byte| byte.is_ascii_digit())
+            });
+
+          if let Some((timestamp, duration, command)) = extended {
+            if !command.is_empty() {
+              let timestamp_ns = nanoseconds(timestamp, "timestamp", line)?;
+
+              let duration_ns = nanoseconds(duration, "duration", line)?;
+
+              records.push(ImportedExecution {
+                execution: Execution {
+                  command: command.into(),
+                  duration_ns: Some(duration_ns),
+                  timestamp_ns,
+                  ..Default::default()
+                },
+                fields: vec![
+                  command.as_bytes().to_vec(),
+                  timestamp_ns.to_be_bytes().to_vec(),
+                  duration_ns.to_be_bytes().to_vec(),
+                ],
+                scheme: b"extended".to_vec(),
+              });
+            }
+          } else {
+            plain_timestamp_ns = plain_timestamp_ns.checked_add(1).context(
+              "plain history timestamp exceeds SQLite integer range",
+            )?;
+
+            let fields = vec![command.as_bytes().to_vec()];
+
+            records.push(ImportedExecution {
+              execution: Execution {
+                command,
+                timestamp_ns: plain_timestamp_ns,
+                ..Default::default()
+              },
+              fields,
+              scheme: b"plain".to_vec(),
+            });
+          }
+
+          Ok((current, plain_timestamp_ns, records))
+        },
+      )?;
+
+    Ok(records)
   }
 
   fn path(&self) -> Result<PathBuf> {
@@ -34,131 +153,6 @@ impl Importer for Zsh {
         "failed to determine Zsh history path; pass PATH or set HISTFILE or HOME",
       )
   }
-}
-
-fn logical_entries(contents: &str) -> Vec<(usize, String)> {
-  let mut current = None;
-  let mut entries = Vec::new();
-
-  for (index, physical) in contents.split_inclusive('\n').enumerate() {
-    let has_newline = physical.ends_with('\n');
-    let physical = physical.strip_suffix('\n').unwrap_or(physical);
-    let start = index + 1;
-    let entry = current.get_or_insert_with(|| (start, String::new()));
-
-    if has_newline && physical.ends_with('\\') {
-      entry.1.push_str(&physical[..physical.len() - 1]);
-      entry.1.push('\n');
-    } else {
-      entry.1.push_str(physical);
-
-      let entry = current.take().unwrap();
-
-      if !entry.1.is_empty() {
-        entries.push(entry);
-      }
-    }
-  }
-
-  if let Some(entry) = current
-    && !entry.1.is_empty()
-  {
-    entries.push(entry);
-  }
-
-  entries
-}
-
-fn parse_history(contents: &[u8]) -> Result<Vec<ImportedExecution>> {
-  let contents =
-    std::str::from_utf8(contents).context("Zsh history is not valid UTF-8")?;
-
-  let mut plain_timestamp_ns = 0_i64;
-  let mut records = Vec::new();
-
-  for (line, command) in logical_entries(contents) {
-    if let Some((timestamp_ns, duration_ns, command)) =
-      parse_extended(&command, line)?
-    {
-      if command.is_empty() {
-        continue;
-      }
-
-      records.push(ImportedExecution {
-        execution: Execution {
-          command: command.into(),
-          duration_ns: Some(duration_ns),
-          timestamp_ns,
-          ..Default::default()
-        },
-        fields: vec![
-          command.as_bytes().to_vec(),
-          timestamp_ns.to_be_bytes().to_vec(),
-          duration_ns.to_be_bytes().to_vec(),
-        ],
-        scheme: b"extended".to_vec(),
-      });
-    } else {
-      plain_timestamp_ns = plain_timestamp_ns
-        .checked_add(1)
-        .context("plain history timestamp exceeds SQLite integer range")?;
-
-      let fields = vec![command.as_bytes().to_vec()];
-
-      records.push(ImportedExecution {
-        execution: Execution {
-          command,
-          timestamp_ns: plain_timestamp_ns,
-          ..Default::default()
-        },
-        fields,
-        scheme: b"plain".to_vec(),
-      });
-    }
-  }
-
-  Ok(records)
-}
-
-fn parse_extended(
-  command: &str,
-  line: usize,
-) -> Result<Option<(i64, i64, &str)>> {
-  let Some(metadata) = command.strip_prefix(": ") else {
-    return Ok(None);
-  };
-
-  let Some((timestamp, metadata)) = metadata.split_once(':') else {
-    return Ok(None);
-  };
-
-  let Some((duration, command)) = metadata.split_once(';') else {
-    return Ok(None);
-  };
-
-  if timestamp.is_empty()
-    || duration.is_empty()
-    || !timestamp.bytes().all(|byte| byte.is_ascii_digit())
-    || !duration.bytes().all(|byte| byte.is_ascii_digit())
-  {
-    return Ok(None);
-  }
-
-  let timestamp_ns = nanoseconds(timestamp, "timestamp", line)?;
-  let duration_ns = nanoseconds(duration, "duration", line)?;
-
-  Ok(Some((timestamp_ns, duration_ns, command)))
-}
-
-fn nanoseconds(value: &str, field: &str, line: usize) -> Result<i64> {
-  value
-    .parse::<u64>()
-    .ok()
-    .and_then(|value| value.checked_mul(NANOSECONDS_PER_SECOND))
-    .and_then(|value| i64::try_from(value).ok())
-    .with_context(|| {
-      format!("{field} on history line {line} overflows nanoseconds")
-    })
 }
 
 #[cfg(test)]
@@ -246,7 +240,7 @@ mod tests {
   fn invalid_utf8() {
     assert_eq!(
       Zsh::parse(&[0xFF]).unwrap_err().to_string(),
-      "Zsh history is not valid UTF-8",
+      "zsh history is not valid UTF-8",
     );
   }
 

@@ -10,8 +10,9 @@ use {
   std::{
     collections::HashMap,
     env, fs,
+    iter::once,
     path::{Path, PathBuf},
-    process,
+    process, str,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
   subcommand::Subcommand,
