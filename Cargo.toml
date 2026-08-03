@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
+uuid = { version = "1.24.0", features = ["v4"] }
