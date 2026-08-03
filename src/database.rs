@@ -163,7 +163,7 @@ impl Database {
 }
 
 impl TryFrom<Connection> for Database {
-  type Error = anyhow::Error;
+  type Error = Error;
 
   fn try_from(connection: Connection) -> Result<Self> {
     connection.busy_timeout(Duration::from_secs(5))?;
