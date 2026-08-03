@@ -12,7 +12,7 @@ pub(crate) enum Source {
 impl Source {
   pub(crate) fn run(self, database: &Database) -> Result {
     match self {
-      Self::Zsh(zsh) => import(&zsh, database),
+      Self::Zsh(zsh) => zsh.import(database),
     }
   }
 }
@@ -21,7 +21,35 @@ trait HistoryImporter {
   const FORMAT: &'static str;
   const NAME: &'static str;
 
+  /// Imports this source's history into the database.
+  fn import(&self, database: &Database) -> Result {
+    let path = self.path()?;
+
+    let contents = fs::read(&path).with_context(|| {
+      format!("failed to read {} history `{}`", Self::NAME, path.display())
+    })?;
+
+    let entries = self.parse(&contents).with_context(|| {
+      format!(
+        "failed to parse {} history `{}`",
+        Self::NAME,
+        path.display()
+      )
+    })?;
+
+    let records = records(Self::FORMAT, entries)?;
+
+    let inserted = database.import(&records)?;
+
+    println!("imported {inserted} executions from {}", path.display());
+
+    Ok(())
+  }
+
+  /// Parses raw history file contents into imported executions.
   fn parse(&self, contents: &[u8]) -> Result<Vec<ImportedExecution>>;
+
+  /// Determines the history file path from source-specific configuration.
   fn path(&self) -> Result<PathBuf>;
 }
 
@@ -88,25 +116,6 @@ fn identifier(format: &str, identity: &Identity, occurrence: u64) -> Uuid {
   frame(&mut name, &occurrence.to_be_bytes());
 
   Uuid::new_v5(&NAMESPACE, &name)
-}
-
-fn import<I: HistoryImporter>(source: &I, database: &Database) -> Result {
-  let path = source.path()?;
-
-  let contents = fs::read(&path).with_context(|| {
-    format!("failed to read {} history `{}`", I::NAME, path.display())
-  })?;
-
-  let entries = source.parse(&contents).with_context(|| {
-    format!("failed to parse {} history `{}`", I::NAME, path.display())
-  })?;
-
-  let records = records(I::FORMAT, entries)?;
-  let inserted = database.import(&records)?;
-
-  println!("imported {inserted} executions from {}", path.display());
-
-  Ok(())
 }
 
 fn records(
