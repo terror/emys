@@ -1,5 +1,9 @@
 use {super::*, std::collections::HashMap};
 
+mod zsh;
+
+pub(crate) use zsh::Zsh;
+
 pub(super) trait Importer {
   const FORMAT: &'static str;
   const NAME: &'static str;

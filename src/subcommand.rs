@@ -16,7 +16,7 @@ pub(crate) enum Subcommand {
   Add(Add),
   #[command(about = "Back up the database")]
   Backup(Backup),
-  #[command(about = "Import shell history")]
+  #[command(about = "Import shell history", alias = "i", subcommand)]
   Import(Import),
   #[command(about = "Generate shell integration")]
   Init(Init),

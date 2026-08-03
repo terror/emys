@@ -1,13 +1,14 @@
 use super::*;
 
 #[derive(Debug, Parser)]
-pub(crate) struct Import {
-  #[command(subcommand)]
-  source: crate::history::Source,
+pub(crate) enum Import {
+  Zsh(Zsh),
 }
 
 impl Import {
   pub(crate) fn run(self, database: &Database) -> Result {
-    self.source.run(database)
+    match self {
+      Self::Zsh(zsh) => zsh.import(database),
+    }
   }
 }

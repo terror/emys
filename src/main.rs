@@ -5,7 +5,7 @@ use {
   database::Database,
   execution::Execution,
   imported_execution::ImportedExecution,
-  importer::Importer,
+  importer::{Importer, Zsh},
   rusqlite::{Connection, MAIN_DB, params},
   std::{
     env, fs,
@@ -27,7 +27,6 @@ use {
 mod arguments;
 mod database;
 mod execution;
-mod history;
 mod imported_execution;
 mod importer;
 mod subcommand;
