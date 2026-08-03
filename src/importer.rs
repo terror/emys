@@ -1,4 +1,4 @@
-use {super::*, std::collections::HashMap};
+use super::*;
 
 mod zsh;
 
