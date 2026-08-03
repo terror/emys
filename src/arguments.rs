@@ -9,6 +9,24 @@ pub(crate) struct Arguments {
 
 impl Arguments {
   pub(crate) fn run(self) -> Result {
-    self.subcommand.run(&Database::open_default()?)
+    #[cfg(unix)]
+    let path =
+      BaseDirectories::with_prefix("emys").place_data_file("history.db")?;
+
+    #[cfg(windows)]
+    let path = {
+      let directory = env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| env::var_os("LOCALAPPDATA").map(PathBuf::from))
+        .context("failed to determine local data directory")?
+        .join("emys");
+
+      fs::create_dir_all(&directory)?;
+
+      directory.join("history.db")
+    };
+
+    self.subcommand.run(&Database::open(path)?)
   }
 }
