@@ -1,7 +1,8 @@
-use {super::*, std::collections::HashMap};
+use {super::*, importer::Importer};
 
 const NAMESPACE: Uuid = Uuid::from_u128(0x81d6d1f2_748f_5b72_89b6_bf87e06a762d);
 
+mod importer;
 mod zsh;
 
 #[derive(Debug, clap::Subcommand)]
@@ -15,42 +16,6 @@ impl Source {
       Self::Zsh(zsh) => zsh.import(database),
     }
   }
-}
-
-trait HistoryImporter {
-  const FORMAT: &'static str;
-  const NAME: &'static str;
-
-  /// Imports this source's history into the database.
-  fn import(&self, database: &Database) -> Result {
-    let path = self.path()?;
-
-    let contents = fs::read(&path).with_context(|| {
-      format!("failed to read {} history `{}`", Self::NAME, path.display())
-    })?;
-
-    let entries = self.parse(&contents).with_context(|| {
-      format!(
-        "failed to parse {} history `{}`",
-        Self::NAME,
-        path.display()
-      )
-    })?;
-
-    let records = records(Self::FORMAT, entries)?;
-
-    let inserted = database.import(&records)?;
-
-    println!("imported {inserted} executions from {}", path.display());
-
-    Ok(())
-  }
-
-  /// Parses raw history file contents into imported executions.
-  fn parse(&self, contents: &[u8]) -> Result<Vec<ImportedExecution>>;
-
-  /// Determines the history file path from source-specific configuration.
-  fn path(&self) -> Result<PathBuf>;
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -116,32 +81,4 @@ fn identifier(format: &str, identity: &Identity, occurrence: u64) -> Uuid {
   frame(&mut name, &occurrence.to_be_bytes());
 
   Uuid::new_v5(&NAMESPACE, &name)
-}
-
-fn records(
-  format: &str,
-  imported: Vec<ImportedExecution>,
-) -> Result<Vec<(Uuid, Execution)>> {
-  let mut occurrences = HashMap::new();
-  let mut records = Vec::with_capacity(imported.len());
-
-  for imported in imported {
-    let occurrence = occurrences
-      .entry(imported.identity.clone())
-      .or_insert(0_u64);
-
-    *occurrence = occurrence
-      .checked_add(1)
-      .context("history occurrence count overflowed")?;
-
-    let mut execution = imported.execution;
-    execution.shell = Some(format.into());
-
-    records.push((
-      identifier(format, &imported.identity, *occurrence),
-      execution,
-    ));
-  }
-
-  Ok(records)
 }

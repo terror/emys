@@ -8,7 +8,7 @@ pub(crate) struct Zsh {
   path: Option<PathBuf>,
 }
 
-impl HistoryImporter for Zsh {
+impl Importer for Zsh {
   const FORMAT: &'static str = "zsh";
   const NAME: &'static str = "Zsh";
 
@@ -158,10 +158,31 @@ fn nanoseconds(value: &str, field: &str, line: usize) -> Result<i64> {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+  use {super::*, std::collections::HashMap};
 
   fn parse(contents: &str) -> Result<Vec<(Uuid, Execution)>> {
-    records(Zsh::FORMAT, parse_history(contents.as_bytes())?)
+    let entries = parse_history(contents.as_bytes())?;
+    let mut occurrences = HashMap::new();
+    let mut records = Vec::with_capacity(entries.len());
+
+    for entry in entries {
+      let occurrence =
+        occurrences.entry(entry.identity.clone()).or_insert(0_u64);
+
+      *occurrence = occurrence
+        .checked_add(1)
+        .context("history occurrence count overflowed")?;
+
+      let mut execution = entry.execution;
+      execution.shell = Some(Zsh::FORMAT.into());
+
+      records.push((
+        identifier(Zsh::FORMAT, &entry.identity, *occurrence),
+        execution,
+      ));
+    }
+
+    Ok(records)
   }
 
   #[test]
