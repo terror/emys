@@ -16,7 +16,11 @@ use {
 };
 
 #[cfg(unix)]
-use {std::os::unix::fs::PermissionsExt, xdg::BaseDirectories};
+use {
+  skim::{Skim, options::SkimOptionsBuilder},
+  std::os::unix::fs::PermissionsExt,
+  xdg::BaseDirectories,
+};
 
 mod arguments;
 mod database;

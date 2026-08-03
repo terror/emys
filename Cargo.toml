@@ -22,3 +22,6 @@ xdg = "3.0.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[target."cfg(unix)".dependencies]
+skim = { version = "5.6.1", default-features = false, features = ["cli"] }

@@ -75,10 +75,16 @@ fn init_zsh() {
   assert_eq!(
     (
       init.status.success(),
+      script.contains("command emys search --interactive -- \"$BUFFER\""),
+      script.contains("zle -N emys-search _emys_search"),
+      script.contains("bindkey '^R' emys-search"),
       script.as_str(),
       String::from_utf8(init.stderr).unwrap(),
     ),
     (
+      true,
+      true,
+      true,
       true,
       include_str!("../src/subcommand/init.zsh"),
       String::new(),
@@ -113,6 +119,52 @@ fn init_zsh() {
       String::from_utf8(output.stderr).unwrap(),
     ),
     (true, String::new(), String::new()),
+  );
+}
+
+#[cfg(unix)]
+#[test]
+fn interactive_search_empty() {
+  let directory = tempdir().unwrap();
+
+  let search = Command::new(env!("CARGO_BIN_EXE_emys"))
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["search", "--interactive", "--", "foo"])
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      search.status.success(),
+      String::from_utf8(search.stdout).unwrap(),
+      String::from_utf8(search.stderr).unwrap(),
+    ),
+    (true, String::new(), String::new()),
+  );
+}
+
+#[cfg(not(unix))]
+#[test]
+fn interactive_search_unsupported() {
+  let directory = tempdir().unwrap();
+
+  let search = Command::new(env!("CARGO_BIN_EXE_emys"))
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["search", "--interactive", "--", "foo"])
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      search.status.success(),
+      String::from_utf8(search.stdout).unwrap(),
+      String::from_utf8(search.stderr).unwrap(),
+    ),
+    (
+      false,
+      String::new(),
+      "error: interactive search is unsupported on this platform\n".into(),
+    ),
   );
 }
 
