@@ -8,7 +8,7 @@ pub(super) enum Shell {
 impl Shell {
   pub(super) fn init(self) -> String {
     match self {
-      Self::Zsh => include_str!("subcommand/init.zsh").into(),
+      Self::Zsh => include_str!("shell/zsh/init.zsh").into(),
     }
   }
 }
