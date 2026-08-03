@@ -84,31 +84,36 @@ fn parse_history(contents: &[u8]) -> Result<Vec<ImportedExecution>> {
         continue;
       }
 
-      records.push(ImportedExecution::new(
-        Identity::new(b"extended")
-          .field(command)
-          .field(timestamp_ns.to_be_bytes())
-          .field(duration_ns.to_be_bytes()),
-        Execution {
+      records.push(ImportedExecution {
+        execution: Execution {
           command: command.into(),
           duration_ns: Some(duration_ns),
           timestamp_ns,
           ..Default::default()
         },
-      ));
+        fields: vec![
+          command.as_bytes().to_vec(),
+          timestamp_ns.to_be_bytes().to_vec(),
+          duration_ns.to_be_bytes().to_vec(),
+        ],
+        scheme: b"extended".to_vec(),
+      });
     } else {
       plain_timestamp_ns = plain_timestamp_ns
         .checked_add(1)
         .context("plain history timestamp exceeds SQLite integer range")?;
 
-      records.push(ImportedExecution::new(
-        Identity::new(b"plain").field(&command),
-        Execution {
+      let fields = vec![command.as_bytes().to_vec()];
+
+      records.push(ImportedExecution {
+        execution: Execution {
           command,
           timestamp_ns: plain_timestamp_ns,
           ..Default::default()
         },
-      ));
+        fields,
+        scheme: b"plain".to_vec(),
+      });
     }
   }
 
@@ -166,20 +171,20 @@ mod tests {
     let mut records = Vec::with_capacity(entries.len());
 
     for entry in entries {
-      let occurrence =
-        occurrences.entry(entry.identity.clone()).or_insert(0_u64);
+      let occurrence = occurrences
+        .entry((entry.scheme.clone(), entry.fields.clone()))
+        .or_insert(0_u64);
 
       *occurrence = occurrence
         .checked_add(1)
         .context("history occurrence count overflowed")?;
 
+      let id = entry.identifier(Zsh::FORMAT, *occurrence);
+
       let mut execution = entry.execution;
       execution.shell = Some(Zsh::FORMAT.into());
 
-      records.push((
-        identifier(Zsh::FORMAT, &entry.identity, *occurrence),
-        execution,
-      ));
+      records.push((id, execution));
     }
 
     Ok(records)

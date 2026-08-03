@@ -25,21 +25,21 @@ pub(super) trait Importer {
     let records = entries
       .into_iter()
       .map(|entry| {
-        let occurrence =
-          occurrences.entry(entry.identity.clone()).or_insert(0_u64);
+        let occurrence = occurrences
+          .entry((entry.scheme.clone(), entry.fields.clone()))
+          .or_insert(0_u64);
 
         *occurrence = occurrence
           .checked_add(1)
           .context("history occurrence count overflowed")?;
 
+        let id = entry.identifier(Self::FORMAT, *occurrence);
+
         let mut execution = entry.execution;
 
         execution.shell = Some(Self::FORMAT.into());
 
-        Ok((
-          identifier(Self::FORMAT, &entry.identity, *occurrence),
-          execution,
-        ))
+        Ok((id, execution))
       })
       .collect::<anyhow::Result<Vec<_>>>()?;
 
