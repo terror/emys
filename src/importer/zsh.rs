@@ -154,7 +154,7 @@ impl Importer for Zsh {
           .map(|path| PathBuf::from(path).join(".zsh_history"))
       })
       .context(
-        "failed to determine Zsh history path; pass PATH or set HISTFILE or HOME",
+        "failed to determine zsh history path; pass PATH or set HISTFILE or HOME",
       )
   }
 }
@@ -370,10 +370,12 @@ mod tests {
   #[test]
   fn plain_history() {
     assert_eq!(
-      Zsh::parse(indoc! {b"
-          foo
-          bar
-        "})
+      Zsh::parse(indoc! {
+        b"
+        foo
+        bar
+        "
+      })
       .unwrap(),
       vec![
         ParsedExecution {
