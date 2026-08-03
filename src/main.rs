@@ -8,6 +8,7 @@ use {
   importer::{Importer, Zsh},
   parsed_execution::ParsedExecution,
   rusqlite::{Connection, MAIN_DB, params},
+  shell::Shell,
   std::{
     collections::HashMap,
     env, fs,
@@ -33,6 +34,7 @@ mod execution;
 mod identity;
 mod importer;
 mod parsed_execution;
+mod shell;
 mod subcommand;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
