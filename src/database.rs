@@ -139,6 +139,7 @@ impl Database {
       .collect()
   }
 
+  #[cfg(test)]
   pub fn connection(&self) -> &Connection {
     &self.connection
   }

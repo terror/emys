@@ -18,8 +18,8 @@ use {
 };
 
 mod arguments;
-pub mod database;
-pub mod execution;
+mod database;
+mod execution;
 mod subcommand;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
