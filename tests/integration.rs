@@ -1,5 +1,6 @@
 use {
   anyhow::Error,
+  executable_path::executable_path,
   indoc::formatdoc,
   rusqlite::Connection,
   std::{
@@ -120,35 +121,8 @@ impl Test {
     self.tempdir.path().join(path)
   }
 
-  fn record(&self) -> Result {
-    self
-      .command()
-      .arguments([
-        "add",
-        "--directory",
-        "/foo",
-        "--duration-ns",
-        "2",
-        "--exit-code",
-        "0",
-        "--hostname",
-        "foo",
-        "--session",
-        "bar",
-        "--shell",
-        "zsh",
-        "--timestamp-ns",
-        "1",
-        "--",
-        "foo",
-      ])
-      .run()?;
-
-    Ok(())
-  }
-
   fn run(self) -> Result<String> {
-    let output = Command::new(env!("CARGO_BIN_EXE_emys"))
+    let output = Command::new(executable_path(env!("CARGO_PKG_NAME")))
       .env("XDG_DATA_HOME", self.tempdir.path())
       .envs(self.environments)
       .args(self.arguments)
@@ -179,8 +153,30 @@ impl Test {
 }
 
 #[test]
-fn add() -> Result {
-  Test::new()?.record()
+fn add_record() -> Result {
+  Test::new()?
+    .arguments([
+      "add",
+      "--directory",
+      "/foo",
+      "--duration-ns",
+      "2",
+      "--exit-code",
+      "0",
+      "--hostname",
+      "foo",
+      "--session",
+      "bar",
+      "--shell",
+      "zsh",
+      "--timestamp-ns",
+      "1",
+      "--",
+      "foo",
+    ])
+    .run()?;
+
+  Ok(())
 }
 
 #[test]
@@ -189,7 +185,16 @@ fn backup() -> Result {
 
   let path = test.path("foo/bar/emys.sqlite");
 
-  test.record()?;
+  let history = test.path("history");
+
+  fs::write(&history, "foo\n")?;
+
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .run()?;
 
   test.command().argument("backup").argument(&path).run()?;
 
@@ -221,7 +226,14 @@ fn backup() -> Result {
     )
     .run()?;
 
-  test.record()?;
+  fs::write(&history, "foo\nbar\n")?;
+
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .run()?;
 
   test
     .command()
@@ -399,12 +411,21 @@ fn interactive_search_unsupported() -> Result {
 fn list() -> Result {
   let test = Test::new()?;
 
-  test.record()?;
+  let history = test.path("history");
+
+  fs::write(&history, "foo\n")?;
+
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .run()?;
 
   test
     .command()
     .arguments(["list", "--limit", "1"])
-    .expected_stdout("1\t0\tfoo\n")
+    .expected_stdout("1\t\tfoo\n")
     .run()?;
 
   Ok(())
@@ -414,12 +435,21 @@ fn list() -> Result {
 fn search() -> Result {
   let test = Test::new()?;
 
-  test.record()?;
+  let history = test.path("history");
+
+  fs::write(&history, "foo\n")?;
+
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .run()?;
 
   test
     .command()
     .arguments(["search", "--limit", "20", "FO"])
-    .expected_stdout("1\t0\tfoo\n")
+    .expected_stdout("1\t\tfoo\n")
     .run()?;
 
   Ok(())
@@ -433,7 +463,7 @@ fn zsh_records_execution() -> Result {
 
   let path = env::join_paths(
     once(
-      Path::new(env!("CARGO_BIN_EXE_emys"))
+      executable_path(env!("CARGO_PKG_NAME"))
         .parent()
         .unwrap()
         .to_path_buf(),
