@@ -16,7 +16,7 @@ wildcard_imports = "allow"
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.5", features = ["derive"] }
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }
 uuid = { version = "1.24.0", features = ["v4"] }
 xdg = "3.0.0"
 
