@@ -5,7 +5,7 @@ pub(crate) struct Database {
 }
 
 impl Database {
-  const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_initial.sql")];
+  const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
 
   pub(crate) fn backup(&self, path: impl AsRef<Path>) -> Result {
