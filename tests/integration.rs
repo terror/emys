@@ -348,7 +348,7 @@ fn init_zsh() -> Result {
   let script = test
     .command()
     .arguments(["init", "zsh"])
-    .expected_stdout(include_str!("../src/subcommand/init.zsh"))
+    .expected_stdout(include_str!("../src/shell/zsh/init.zsh"))
     .run()?;
 
   let mut zsh = match Command::new("zsh")
@@ -460,7 +460,7 @@ fn zsh_records_execution() -> Result {
   let script = test
     .command()
     .arguments(["init", "zsh"])
-    .expected_stdout(include_str!("../src/subcommand/init.zsh"))
+    .expected_stdout(include_str!("../src/shell/zsh/init.zsh"))
     .run()?;
 
   let path = env::join_paths(
