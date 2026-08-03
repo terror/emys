@@ -12,7 +12,7 @@ impl Importer for Zsh {
   const FORMAT: &'static str = "zsh";
   const NAME: &'static str = "Zsh";
 
-  fn parse(&self, contents: &[u8]) -> Result<Vec<ImportedExecution>> {
+  fn parse(contents: &[u8]) -> Result<Vec<ImportedExecution>> {
     parse_history(contents)
   }
 
@@ -163,65 +163,40 @@ fn nanoseconds(value: &str, field: &str, line: usize) -> Result<i64> {
 
 #[cfg(test)]
 mod tests {
-  use {super::*, std::collections::HashMap};
-
-  fn parse(contents: &str) -> Result<Vec<(Uuid, Execution)>> {
-    let entries = parse_history(contents.as_bytes())?;
-    let mut occurrences = HashMap::new();
-    let mut records = Vec::with_capacity(entries.len());
-
-    for entry in entries {
-      let occurrence = occurrences
-        .entry((entry.scheme.clone(), entry.fields.clone()))
-        .or_insert(0_u64);
-
-      *occurrence = occurrence
-        .checked_add(1)
-        .context("history occurrence count overflowed")?;
-
-      let id = entry.identifier(Zsh::FORMAT, *occurrence);
-
-      let mut execution = entry.execution;
-      execution.shell = Some(Zsh::FORMAT.into());
-
-      records.push((id, execution));
-    }
-
-    Ok(records)
-  }
+  use super::*;
 
   #[test]
   fn commands_beginning_with_colon() {
     assert_eq!(
-      parse(": foo\n: 1:x;bar\n: 1:2bar;baz").unwrap(),
+      Zsh::parse(b": foo\n: 1:x;bar\n: 1:2bar;baz").unwrap(),
       vec![
-        (
-          Uuid::parse_str("bae45eab-db31-54d0-b0fb-56b9470874ea").unwrap(),
-          Execution {
+        ImportedExecution {
+          execution: Execution {
             command: ": foo".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 1,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("506dad05-3ee9-514a-aa68-933536d64a00").unwrap(),
-          Execution {
+          fields: vec![b": foo".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: ": 1:x;bar".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 2,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("fa333708-6a25-54aa-a223-cf2bbac86771").unwrap(),
-          Execution {
+          fields: vec![b": 1:x;bar".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: ": 1:2bar;baz".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 3,
             ..Default::default()
           },
-        ),
+          fields: vec![b": 1:2bar;baz".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
       ],
     );
   }
@@ -229,37 +204,41 @@ mod tests {
   #[test]
   fn duration_overflow() {
     assert_eq!(
-      parse(": 1:9223372037;foo").unwrap_err().to_string(),
+      Zsh::parse(b": 1:9223372037;foo").unwrap_err().to_string(),
       "duration on history line 1 overflows nanoseconds",
     );
   }
 
   #[test]
   fn empty_input() {
-    assert_eq!(parse("").unwrap(), Vec::new());
+    assert_eq!(Zsh::parse(b"").unwrap(), Vec::new());
   }
 
   #[test]
   fn extended_history() {
     assert_eq!(
-      parse(": 1700000000:2;git status").unwrap(),
-      vec![(
-        Uuid::parse_str("24c87754-e0cb-5e30-9852-52d34462378a").unwrap(),
-        Execution {
-          command: "git status".into(),
+      Zsh::parse(b": 1:2;foo").unwrap(),
+      vec![ImportedExecution {
+        execution: Execution {
+          command: "foo".into(),
           duration_ns: Some(2_000_000_000),
-          shell: Some("zsh".into()),
-          timestamp_ns: 1_700_000_000_000_000_000,
+          timestamp_ns: 1_000_000_000,
           ..Default::default()
         },
-      )],
+        fields: vec![
+          b"foo".to_vec(),
+          1_000_000_000_i64.to_be_bytes().to_vec(),
+          2_000_000_000_i64.to_be_bytes().to_vec(),
+        ],
+        scheme: b"extended".to_vec(),
+      }],
     );
   }
 
   #[test]
   fn invalid_utf8() {
     assert_eq!(
-      parse_history(&[0xFF]).unwrap_err().to_string(),
+      Zsh::parse(&[0xFF]).unwrap_err().to_string(),
       "Zsh history is not valid UTF-8",
     );
   }
@@ -267,36 +246,40 @@ mod tests {
   #[test]
   fn mixed_history() {
     assert_eq!(
-      parse("foo\n: 2:3;bar\nbaz").unwrap(),
+      Zsh::parse(b"foo\n: 2:3;bar\nbaz").unwrap(),
       vec![
-        (
-          Uuid::parse_str("5701fc72-edbb-500d-9c84-ff46c43300fc").unwrap(),
-          Execution {
+        ImportedExecution {
+          execution: Execution {
             command: "foo".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 1,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("e4c7a59c-dad0-5290-9984-eb62b6289b02").unwrap(),
-          Execution {
+          fields: vec![b"foo".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: "bar".into(),
             duration_ns: Some(3_000_000_000),
-            shell: Some("zsh".into()),
             timestamp_ns: 2_000_000_000,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("11c39ab0-d0d3-5f8d-9e21-3458b92c6aef").unwrap(),
-          Execution {
+          fields: vec![
+            b"bar".to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+            3_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+          scheme: b"extended".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: "baz".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 2,
             ..Default::default()
           },
-        ),
+          fields: vec![b"baz".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
       ],
     );
   }
@@ -304,110 +287,122 @@ mod tests {
   #[test]
   fn multiline_entries() {
     assert_eq!(
-      parse("foo \\\nbar\n: 1:2;baz \\\nqux\n").unwrap(),
+      Zsh::parse(b"foo \\\nbar\n: 1:2;baz \\\nqux\n").unwrap(),
       vec![
-        (
-          Uuid::parse_str("6f8e438c-8923-5c8e-aa92-f5bfb6239198").unwrap(),
-          Execution {
+        ImportedExecution {
+          execution: Execution {
             command: "foo \nbar".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 1,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("1a6c3a91-9e46-5cd9-bf26-c55bf76cc0d8").unwrap(),
-          Execution {
+          fields: vec![b"foo \nbar".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: "baz \nqux".into(),
             duration_ns: Some(2_000_000_000),
-            shell: Some("zsh".into()),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-        ),
+          fields: vec![
+            b"baz \nqux".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+          scheme: b"extended".to_vec(),
+        },
       ],
     );
   }
 
   #[test]
   fn parsing_is_deterministic() {
-    let contents = "foo\n: 1:2;bar\nfoo";
+    let contents = b"foo\n: 1:2;bar\nfoo";
 
-    assert_eq!(parse(contents).unwrap(), parse(contents).unwrap());
+    assert_eq!(Zsh::parse(contents).unwrap(), Zsh::parse(contents).unwrap());
   }
 
   #[test]
   fn plain_history() {
     assert_eq!(
-      parse("git status\ncargo test").unwrap(),
+      Zsh::parse(b"foo\nbar").unwrap(),
       vec![
-        (
-          Uuid::parse_str("b7868239-523b-5b1c-a66f-24f2ca04613c").unwrap(),
-          Execution {
-            command: "git status".into(),
-            shell: Some("zsh".into()),
+        ImportedExecution {
+          execution: Execution {
+            command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("674314a8-4e0f-50f5-9a0c-ac0546adfd5b").unwrap(),
-          Execution {
-            command: "cargo test".into(),
-            shell: Some("zsh".into()),
+          fields: vec![b"foo".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
+            command: "bar".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-        ),
+          fields: vec![b"bar".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
       ],
     );
   }
 
   #[test]
   fn repeated_commands() {
-    let records = parse("foo\nfoo\n: 1:2;foo\n: 1:2;foo").unwrap();
+    let records = Zsh::parse(b"foo\nfoo\n: 1:2;foo\n: 1:2;foo").unwrap();
 
     assert_eq!(
       records,
       vec![
-        (
-          Uuid::parse_str("5701fc72-edbb-500d-9c84-ff46c43300fc").unwrap(),
-          Execution {
+        ImportedExecution {
+          execution: Execution {
             command: "foo".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 1,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("ea9febfd-f3f9-5203-a6dc-d827af73228c").unwrap(),
-          Execution {
+          fields: vec![b"foo".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: "foo".into(),
-            shell: Some("zsh".into()),
             timestamp_ns: 2,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("aebb3d50-be71-56f6-93d1-349e89dcd00b").unwrap(),
-          Execution {
+          fields: vec![b"foo".to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
-            shell: Some("zsh".into()),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-        ),
-        (
-          Uuid::parse_str("7190a37f-1ada-57c8-9c4d-20427e3170ec").unwrap(),
-          Execution {
+          fields: vec![
+            b"foo".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+          scheme: b"extended".to_vec(),
+        },
+        ImportedExecution {
+          execution: Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
-            shell: Some("zsh".into()),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-        ),
+          fields: vec![
+            b"foo".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+          scheme: b"extended".to_vec(),
+        },
       ],
     );
   }
@@ -415,7 +410,7 @@ mod tests {
   #[test]
   fn timestamp_overflow() {
     assert_eq!(
-      parse(": 9223372037:1;foo").unwrap_err().to_string(),
+      Zsh::parse(b": 9223372037:1;foo").unwrap_err().to_string(),
       "timestamp on history line 1 overflows nanoseconds",
     );
   }

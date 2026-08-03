@@ -16,7 +16,7 @@ pub(super) trait Importer {
       format!("failed to read {} history `{}`", Self::NAME, path.display())
     })?;
 
-    let entries = self.parse(&contents).with_context(|| {
+    let entries = Self::parse(&contents).with_context(|| {
       format!(
         "failed to parse {} history `{}`",
         Self::NAME,
@@ -55,7 +55,7 @@ pub(super) trait Importer {
   }
 
   /// Parses raw history file contents into imported executions.
-  fn parse(&self, contents: &[u8]) -> Result<Vec<ImportedExecution>>;
+  fn parse(contents: &[u8]) -> Result<Vec<ImportedExecution>>;
 
   /// Determines the history file path from source-specific configuration.
   fn path(&self) -> Result<PathBuf>;
