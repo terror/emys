@@ -53,12 +53,6 @@ impl ImportedExecution {
   }
 }
 
-fn frame(destination: &mut Vec<u8>, value: &[u8]) {
-  destination
-    .extend_from_slice(&u64::try_from(value.len()).unwrap().to_be_bytes());
-  destination.extend_from_slice(value);
-}
-
 fn identifier(format: &str, identity: &Identity, occurrence: u64) -> Uuid {
   let capacity = identity
     .fields
@@ -71,14 +65,24 @@ fn identifier(format: &str, identity: &Identity, occurrence: u64) -> Uuid {
 
   let mut name = Vec::with_capacity(capacity);
 
-  frame(&mut name, &identity.scheme);
-  frame(&mut name, format.as_bytes());
+  name.extend_from_slice(
+    &u64::try_from(identity.scheme.len()).unwrap().to_be_bytes(),
+  );
+  name.extend_from_slice(&identity.scheme);
+
+  name.extend_from_slice(&u64::try_from(format.len()).unwrap().to_be_bytes());
+  name.extend_from_slice(format.as_bytes());
 
   for field in &identity.fields {
-    frame(&mut name, field);
+    name.extend_from_slice(&u64::try_from(field.len()).unwrap().to_be_bytes());
+    name.extend_from_slice(field);
   }
 
-  frame(&mut name, &occurrence.to_be_bytes());
+  let occurrence = occurrence.to_be_bytes();
+
+  name
+    .extend_from_slice(&u64::try_from(occurrence.len()).unwrap().to_be_bytes());
+  name.extend_from_slice(&occurrence);
 
   Uuid::new_v5(&NAMESPACE, &name)
 }
