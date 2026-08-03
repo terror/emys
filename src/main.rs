@@ -1,21 +1,22 @@
 use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
-  clap::Parser,
+  clap::{Parser, ValueEnum},
   database::Database,
   execution::Execution,
   rusqlite::{Connection, params},
   std::{
     env, fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
   subcommand::Subcommand,
   uuid::Uuid,
-  xdg::BaseDirectories,
 };
+
+#[cfg(unix)]
+use {std::os::unix::fs::PermissionsExt, xdg::BaseDirectories};
 
 mod arguments;
 mod database;
