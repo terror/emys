@@ -4,6 +4,8 @@ use {
   clap::{Parser, ValueEnum},
   database::Database,
   execution::Execution,
+  imported_execution::ImportedExecution,
+  importer::Importer,
   rusqlite::{Connection, MAIN_DB, params},
   std::{
     env, fs,
@@ -26,6 +28,8 @@ mod arguments;
 mod database;
 mod execution;
 mod history;
+mod imported_execution;
+mod importer;
 mod subcommand;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
