@@ -1,8 +1,9 @@
-use {super::*, add::Add, init::Init, list::List};
+use {super::*, add::Add, init::Init, list::List, search::Search};
 
 mod add;
 mod init;
 mod list;
+mod search;
 
 #[derive(Debug, Parser)]
 pub(crate) enum Subcommand {
@@ -12,6 +13,8 @@ pub(crate) enum Subcommand {
   Init(Init),
   #[command(about = "List recent shell commands", alias = "l")]
   List(List),
+  #[command(about = "Search shell commands", alias = "s")]
+  Search(Search),
 }
 
 impl Subcommand {
@@ -23,6 +26,7 @@ impl Subcommand {
         Ok(())
       }
       Self::List(list) => list.run(database),
+      Self::Search(search) => search.run(database),
     }
   }
 }
