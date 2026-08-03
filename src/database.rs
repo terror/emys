@@ -39,9 +39,77 @@ pub(crate) struct Database {
 }
 
 impl Database {
+  pub(crate) fn backup(&self, path: impl AsRef<Path>) -> Result {
+    self.backup_inner(path.as_ref(), false)
+  }
+
+  fn backup_inner(&self, path: &Path, force: bool) -> Result {
+    let parent = path
+      .parent()
+      .filter(|parent| !parent.as_os_str().is_empty())
+      .unwrap_or_else(|| Path::new("."));
+
+    fs::create_dir_all(parent)?;
+
+    if !force && path.try_exists()? {
+      bail!(
+        "backup `{}` already exists; use --force to overwrite it",
+        path.display(),
+      );
+    }
+
+    let temporary = parent.join(format!(".emys-backup-{}.tmp", Uuid::new_v4()));
+
+    let result = (|| {
+      let mut options = fs::OpenOptions::new();
+      options.write(true).create_new(true);
+
+      #[cfg(unix)]
+      options.mode(0o600);
+
+      drop(options.open(&temporary)?);
+
+      self
+        .connection
+        .backup(MAIN_DB, &temporary, None)
+        .with_context(|| {
+          format!("failed to back up database to `{}`", path.display())
+        })?;
+
+      #[cfg(unix)]
+      fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+
+      if !force && path.try_exists()? {
+        bail!(
+          "backup `{}` already exists; use --force to overwrite it",
+          path.display(),
+        );
+      }
+
+      #[cfg(windows)]
+      if force && path.try_exists()? {
+        fs::remove_file(path)?;
+      }
+
+      fs::rename(&temporary, path)?;
+
+      Ok(())
+    })();
+
+    if result.is_err() {
+      let _ = fs::remove_file(temporary);
+    }
+
+    result
+  }
+
   #[cfg(test)]
   pub(crate) fn connection(&self) -> &Connection {
     &self.connection
+  }
+
+  pub(crate) fn force_backup(&self, path: impl AsRef<Path>) -> Result {
+    self.backup_inner(path.as_ref(), true)
   }
 
   pub(crate) fn insert(&self, execution: &Execution) -> Result<Uuid> {
@@ -273,6 +341,126 @@ impl TryFrom<Connection> for Database {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn backup_copies_executions_while_source_remains_open() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("foo/source.db");
+    let destination = root.path().join("bar/backup.db");
+
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+
+    let database = Database::open(&source).unwrap();
+
+    let first = database
+      .insert(&Execution {
+        command: "foo".into(),
+        timestamp_ns: 1,
+        ..Default::default()
+      })
+      .unwrap();
+
+    let second = database
+      .insert(&Execution {
+        command: "bar".into(),
+        timestamp_ns: 2,
+        ..Default::default()
+      })
+      .unwrap();
+
+    database.backup(&destination).unwrap();
+
+    database
+      .insert(&Execution {
+        command: "baz".into(),
+        timestamp_ns: 3,
+        ..Default::default()
+      })
+      .unwrap();
+
+    let backup = Database::open(&destination).unwrap();
+
+    assert_eq!(
+      (
+        backup
+          .connection()
+          .query_row("PRAGMA integrity_check", [], |row| row
+            .get::<_, String>(0))
+          .unwrap(),
+        backup.recent(20).unwrap(),
+      ),
+      (
+        "ok".into(),
+        vec![
+          (
+            second,
+            Execution {
+              command: "bar".into(),
+              timestamp_ns: 2,
+              ..Default::default()
+            },
+          ),
+          (
+            first,
+            Execution {
+              command: "foo".into(),
+              timestamp_ns: 1,
+              ..Default::default()
+            },
+          ),
+        ],
+      ),
+    );
+
+    #[cfg(unix)]
+    assert_eq!(
+      fs::metadata(destination).unwrap().permissions().mode() & 0o777,
+      0o600,
+    );
+  }
+
+  #[test]
+  fn backup_refuses_existing_destination_unless_forced() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source.db");
+    let destination = root.path().join("backup.db");
+    let database = Database::open(source).unwrap();
+
+    database
+      .insert(&Execution {
+        command: "foo".into(),
+        ..Default::default()
+      })
+      .unwrap();
+
+    database.backup(&destination).unwrap();
+
+    database
+      .insert(&Execution {
+        command: "bar".into(),
+        ..Default::default()
+      })
+      .unwrap();
+
+    assert_eq!(
+      database.backup(&destination).unwrap_err().to_string(),
+      format!(
+        "backup `{}` already exists; use --force to overwrite it",
+        destination.display(),
+      ),
+    );
+
+    database.force_backup(&destination).unwrap();
+
+    assert_eq!(
+      Database::open(destination)
+        .unwrap()
+        .recent(20)
+        .unwrap()
+        .len(),
+      2
+    );
+  }
 
   #[test]
   fn insert_stores_every_execution() {

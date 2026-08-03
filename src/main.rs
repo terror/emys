@@ -4,7 +4,7 @@ use {
   clap::{Parser, ValueEnum},
   database::Database,
   execution::Execution,
-  rusqlite::{Connection, params},
+  rusqlite::{Connection, MAIN_DB, params},
   std::{
     env, fs,
     path::{Path, PathBuf},
@@ -18,7 +18,7 @@ use {
 #[cfg(unix)]
 use {
   skim::{Skim, options::SkimOptionsBuilder},
-  std::os::unix::fs::PermissionsExt,
+  std::os::unix::fs::{OpenOptionsExt, PermissionsExt},
   xdg::BaseDirectories,
 };
 

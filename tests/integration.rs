@@ -10,6 +10,9 @@ use {
   tempfile::tempdir,
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 fn init(binary: &str, directory: &Path) -> Output {
   Command::new(binary)
     .env("XDG_DATA_HOME", directory)
@@ -59,6 +62,99 @@ fn add() {
       String::from_utf8(add.stderr).unwrap(),
     ),
     (true, String::new(), String::new()),
+  );
+}
+
+#[test]
+fn backup() {
+  let directory = tempdir().unwrap();
+  let binary = env!("CARGO_BIN_EXE_emys");
+  let path = directory.path().join("foo/bar/emys.sqlite");
+
+  assert!(record(binary, directory.path()).status.success());
+
+  let backup = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .arg("backup")
+    .arg(&path)
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      backup.status.success(),
+      String::from_utf8(backup.stdout).unwrap(),
+      String::from_utf8(backup.stderr).unwrap(),
+    ),
+    (true, String::new(), String::new()),
+  );
+
+  let connection = Connection::open(&path).unwrap();
+
+  assert_eq!(
+    (
+      connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+        .unwrap(),
+      connection
+        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
+          row.get::<_, i64>(0)
+        })
+        .unwrap(),
+    ),
+    ("ok".into(), 1),
+  );
+
+  drop(connection);
+
+  #[cfg(unix)]
+  assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o600,);
+
+  let existing = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .arg("backup")
+    .arg(&path)
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      existing.status.success(),
+      String::from_utf8(existing.stdout).unwrap(),
+      String::from_utf8(existing.stderr).unwrap(),
+    ),
+    (
+      false,
+      String::new(),
+      format!(
+        "error: backup `{}` already exists; use --force to overwrite it\n",
+        path.display(),
+      ),
+    ),
+  );
+
+  assert!(record(binary, directory.path()).status.success());
+
+  let forced = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["backup", "--force"])
+    .arg(&path)
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      forced.status.success(),
+      String::from_utf8(forced.stdout).unwrap(),
+      String::from_utf8(forced.stderr).unwrap(),
+      Connection::open(path)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
+          row.get::<_, i64>(0)
+        })
+        .unwrap(),
+    ),
+    (true, String::new(), String::new(), 2),
   );
 }
 
