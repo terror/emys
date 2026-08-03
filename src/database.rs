@@ -591,6 +591,7 @@ mod tests {
       database.import(&[first.clone(), second.clone()]).unwrap(),
       2
     );
+
     assert_eq!(
       (
         database.recent(20).unwrap(),
