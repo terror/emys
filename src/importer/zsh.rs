@@ -12,7 +12,7 @@ impl Importer for Zsh {
   const FORMAT: &'static str = "zsh";
   const NAME: &'static str = "Zsh";
 
-  fn parse(contents: &[u8]) -> Result<Vec<ImportedExecution>> {
+  fn parse(contents: &[u8]) -> Result<Vec<ParsedExecution>> {
     let contents =
       str::from_utf8(contents).context("zsh history is not valid UTF-8")?;
 
@@ -36,7 +36,7 @@ impl Importer for Zsh {
         (
           None::<(usize, String)>,
           0_i64,
-          Vec::<ImportedExecution>::new(),
+          Vec::<ParsedExecution>::new(),
         ),
         |(mut current, mut plain_timestamp_ns, mut records),
          physical|
@@ -95,19 +95,21 @@ impl Importer for Zsh {
 
               let duration_ns = nanoseconds(duration, "duration", line)?;
 
-              records.push(ImportedExecution {
+              records.push(ParsedExecution {
                 execution: Execution {
                   command: command.into(),
                   duration_ns: Some(duration_ns),
                   timestamp_ns,
                   ..Default::default()
                 },
-                fields: vec![
-                  command.as_bytes().to_vec(),
-                  timestamp_ns.to_be_bytes().to_vec(),
-                  duration_ns.to_be_bytes().to_vec(),
-                ],
-                scheme: b"extended".to_vec(),
+                identity: Identity {
+                  fields: vec![
+                    command.as_bytes().to_vec(),
+                    timestamp_ns.to_be_bytes().to_vec(),
+                    duration_ns.to_be_bytes().to_vec(),
+                  ],
+                  scheme: b"extended".to_vec(),
+                },
               });
             }
           } else {
@@ -117,14 +119,16 @@ impl Importer for Zsh {
 
             let fields = vec![command.as_bytes().to_vec()];
 
-            records.push(ImportedExecution {
+            records.push(ParsedExecution {
               execution: Execution {
                 command,
                 timestamp_ns: plain_timestamp_ns,
                 ..Default::default()
               },
-              fields,
-              scheme: b"plain".to_vec(),
+              identity: Identity {
+                fields,
+                scheme: b"plain".to_vec(),
+              },
             });
           }
 
@@ -171,32 +175,38 @@ mod tests {
       })
       .unwrap(),
       vec![
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: ": foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          fields: vec![b": foo".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b": foo".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: ": 1:x;bar".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          fields: vec![b": 1:x;bar".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b": 1:x;bar".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: ": 1:2bar;baz".into(),
             timestamp_ns: 3,
             ..Default::default()
           },
-          fields: vec![b": 1:2bar;baz".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b": 1:2bar;baz".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
       ],
     );
@@ -219,19 +229,21 @@ mod tests {
   fn extended_history() {
     assert_eq!(
       Zsh::parse(b": 1:2;foo").unwrap(),
-      vec![ImportedExecution {
+      vec![ParsedExecution {
         execution: Execution {
           command: "foo".into(),
           duration_ns: Some(2_000_000_000),
           timestamp_ns: 1_000_000_000,
           ..Default::default()
         },
-        fields: vec![
-          b"foo".to_vec(),
-          1_000_000_000_i64.to_be_bytes().to_vec(),
-          2_000_000_000_i64.to_be_bytes().to_vec(),
-        ],
-        scheme: b"extended".to_vec(),
+        identity: Identity {
+          fields: vec![
+            b"foo".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+          scheme: b"extended".to_vec(),
+        },
       }],
     );
   }
@@ -256,37 +268,43 @@ mod tests {
       })
       .unwrap(),
       vec![
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          fields: vec![b"foo".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"foo".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "bar".into(),
             duration_ns: Some(3_000_000_000),
             timestamp_ns: 2_000_000_000,
             ..Default::default()
           },
-          fields: vec![
-            b"bar".to_vec(),
-            2_000_000_000_i64.to_be_bytes().to_vec(),
-            3_000_000_000_i64.to_be_bytes().to_vec(),
-          ],
-          scheme: b"extended".to_vec(),
+          identity: Identity {
+            fields: vec![
+              b"bar".to_vec(),
+              2_000_000_000_i64.to_be_bytes().to_vec(),
+              3_000_000_000_i64.to_be_bytes().to_vec(),
+            ],
+            scheme: b"extended".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "baz".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          fields: vec![b"baz".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"baz".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
       ],
     );
@@ -305,28 +323,32 @@ mod tests {
       })
       .unwrap(),
       vec![
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo \nbar".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          fields: vec![b"foo \nbar".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"foo \nbar".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "baz \nqux".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          fields: vec![
-            b"baz \nqux".to_vec(),
-            1_000_000_000_i64.to_be_bytes().to_vec(),
-            2_000_000_000_i64.to_be_bytes().to_vec(),
-          ],
-          scheme: b"extended".to_vec(),
+          identity: Identity {
+            fields: vec![
+              b"baz \nqux".to_vec(),
+              1_000_000_000_i64.to_be_bytes().to_vec(),
+              2_000_000_000_i64.to_be_bytes().to_vec(),
+            ],
+            scheme: b"extended".to_vec(),
+          },
         },
       ],
     );
@@ -354,23 +376,27 @@ mod tests {
         "})
       .unwrap(),
       vec![
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          fields: vec![b"foo".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"foo".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "bar".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          fields: vec![b"bar".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"bar".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
       ],
     );
@@ -389,51 +415,59 @@ mod tests {
       })
       .unwrap(),
       vec![
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          fields: vec![b"foo".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"foo".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          fields: vec![b"foo".to_vec()],
-          scheme: b"plain".to_vec(),
+          identity: Identity {
+            fields: vec![b"foo".to_vec()],
+            scheme: b"plain".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          fields: vec![
-            b"foo".to_vec(),
-            1_000_000_000_i64.to_be_bytes().to_vec(),
-            2_000_000_000_i64.to_be_bytes().to_vec(),
-          ],
-          scheme: b"extended".to_vec(),
+          identity: Identity {
+            fields: vec![
+              b"foo".to_vec(),
+              1_000_000_000_i64.to_be_bytes().to_vec(),
+              2_000_000_000_i64.to_be_bytes().to_vec(),
+            ],
+            scheme: b"extended".to_vec(),
+          },
         },
-        ImportedExecution {
+        ParsedExecution {
           execution: Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          fields: vec![
-            b"foo".to_vec(),
-            1_000_000_000_i64.to_be_bytes().to_vec(),
-            2_000_000_000_i64.to_be_bytes().to_vec(),
-          ],
-          scheme: b"extended".to_vec(),
+          identity: Identity {
+            fields: vec![
+              b"foo".to_vec(),
+              1_000_000_000_i64.to_be_bytes().to_vec(),
+              2_000_000_000_i64.to_be_bytes().to_vec(),
+            ],
+            scheme: b"extended".to_vec(),
+          },
         },
       ],
     );

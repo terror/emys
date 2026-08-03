@@ -29,15 +29,14 @@ pub(super) trait Importer {
     let records = entries
       .into_iter()
       .map(|entry| {
-        let occurrence = occurrences
-          .entry((entry.scheme.clone(), entry.fields.clone()))
-          .or_insert(0_u64);
+        let occurrence =
+          occurrences.entry(entry.identity.clone()).or_insert(0_u64);
 
         *occurrence = occurrence
           .checked_add(1)
           .context("history occurrence count overflowed")?;
 
-        let id = entry.identifier(Self::FORMAT, *occurrence);
+        let id = entry.identity.identifier(Self::FORMAT, *occurrence);
 
         let mut execution = entry.execution;
 
@@ -54,8 +53,8 @@ pub(super) trait Importer {
     Ok(())
   }
 
-  /// Parses raw history file contents into imported executions.
-  fn parse(contents: &[u8]) -> Result<Vec<ImportedExecution>>;
+  /// Parses raw history file contents into executions and their identities.
+  fn parse(contents: &[u8]) -> Result<Vec<ParsedExecution>>;
 
   /// Determines the history file path from source-specific configuration.
   fn path(&self) -> Result<PathBuf>;

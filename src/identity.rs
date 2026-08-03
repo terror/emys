@@ -1,15 +1,15 @@
 use super::*;
 
-const NAMESPACE: Uuid = Uuid::from_u128(0x81d6d1f2_748f_5b72_89b6_bf87e06a762d);
-
-#[derive(Debug, Eq, PartialEq)]
-pub(super) struct ImportedExecution {
-  pub(super) execution: Execution,
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct Identity {
   pub(super) fields: Vec<Vec<u8>>,
   pub(super) scheme: Vec<u8>,
 }
 
-impl ImportedExecution {
+impl Identity {
+  const NAMESPACE: Uuid =
+    Uuid::from_u128(0x81d6d1f2_748f_5b72_89b6_bf87e06a762d);
+
   pub(super) fn identifier(&self, format: &str, occurrence: u64) -> Uuid {
     let capacity = self
       .fields
@@ -46,6 +46,6 @@ impl ImportedExecution {
 
     name.extend_from_slice(&occurrence);
 
-    Uuid::new_v5(&NAMESPACE, &name)
+    Uuid::new_v5(&Self::NAMESPACE, &name)
   }
 }
