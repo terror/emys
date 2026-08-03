@@ -34,23 +34,17 @@ const SCHEMA: &str = "
   COMMIT;
 ";
 
-pub struct Database {
+pub(crate) struct Database {
   connection: Connection,
 }
 
 impl Database {
-  pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-    Self::try_from(Connection::open(path)?)
+  #[cfg(test)]
+  pub(crate) fn connection(&self) -> &Connection {
+    &self.connection
   }
 
-  pub fn open_default() -> Result<Self> {
-    let path =
-      BaseDirectories::with_prefix("emys").place_data_file("history.db")?;
-
-    Self::open_file(&path)
-  }
-
-  pub fn insert(&self, execution: &Execution) -> Result<Uuid> {
+  pub(crate) fn insert(&self, execution: &Execution) -> Result<Uuid> {
     let id = Uuid::new_v4();
 
     let directory = execution
@@ -91,7 +85,36 @@ impl Database {
     Ok(id)
   }
 
-  pub fn recent(&self, limit: usize) -> Result<Vec<(Uuid, Execution)>> {
+  pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self> {
+    Self::try_from(Connection::open(path)?)
+  }
+
+  pub(crate) fn open_default() -> Result<Self> {
+    let path =
+      BaseDirectories::with_prefix("emys").place_data_file("history.db")?;
+
+    Self::open_file(&path)
+  }
+
+  fn open_file(path: &Path) -> Result<Self> {
+    let directory = path
+      .parent()
+      .context("database path has no parent directory")?;
+
+    #[cfg(unix)]
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+
+    let database = Self::open(path).with_context(|| {
+      format!("failed to open database `{}`", path.display())
+    })?;
+
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+
+    Ok(database)
+  }
+
+  pub(crate) fn recent(&self, limit: usize) -> Result<Vec<(Uuid, Execution)>> {
     let limit = i64::try_from(limit)
       .context("execution limit exceeds SQLite integer range")?;
 
@@ -137,29 +160,6 @@ impl Database {
         Ok((id, execution))
       })
       .collect()
-  }
-
-  #[cfg(test)]
-  pub fn connection(&self) -> &Connection {
-    &self.connection
-  }
-
-  fn open_file(path: &Path) -> Result<Self> {
-    let directory = path
-      .parent()
-      .context("database path has no parent directory")?;
-
-    #[cfg(unix)]
-    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-
-    let database = Self::open(path).with_context(|| {
-      format!("failed to open database `{}`", path.display())
-    })?;
-
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-
-    Ok(database)
   }
 }
 
@@ -342,9 +342,8 @@ mod tests {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    let error = match database.recent(usize::MAX) {
-      Ok(_) => panic!("expected large limit to fail"),
-      Err(error) => error,
+    let Err(error) = database.recent(usize::MAX) else {
+      panic!("expected large limit to fail")
     };
 
     assert_eq!(
@@ -359,9 +358,8 @@ mod tests {
 
     connection.execute_batch("PRAGMA user_version = 2").unwrap();
 
-    let error = match Database::try_from(connection) {
-      Ok(_) => panic!("expected unsupported schema to fail"),
-      Err(error) => error,
+    let Err(error) = Database::try_from(connection) else {
+      panic!("expected unsupported schema to fail")
     };
 
     assert_eq!(
