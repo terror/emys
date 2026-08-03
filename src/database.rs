@@ -43,6 +43,13 @@ impl Database {
     Self::try_from(Connection::open(path)?)
   }
 
+  pub fn open_default() -> Result<Self> {
+    let path =
+      BaseDirectories::with_prefix("emys").place_data_file("history.db")?;
+
+    Self::open_file(&path)
+  }
+
   pub fn insert(&self, execution: &Execution) -> Result<Uuid> {
     let id = Uuid::new_v4();
 
@@ -135,12 +142,33 @@ impl Database {
   pub fn connection(&self) -> &Connection {
     &self.connection
   }
+
+  fn open_file(path: &Path) -> Result<Self> {
+    let directory = path
+      .parent()
+      .context("database path has no parent directory")?;
+
+    #[cfg(unix)]
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+
+    let database = Self::open(path).with_context(|| {
+      format!("failed to open database `{}`", path.display())
+    })?;
+
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+
+    Ok(database)
+  }
 }
 
 impl TryFrom<Connection> for Database {
   type Error = anyhow::Error;
 
   fn try_from(connection: Connection) -> Result<Self> {
+    connection.busy_timeout(Duration::from_secs(5))?;
+    connection.pragma_update(None, "journal_mode", "WAL")?;
+
     match connection.query_row("PRAGMA user_version", [], |row| row.get(0))? {
       0 => connection.execute_batch(SCHEMA)?,
       SCHEMA_VERSION => {}
@@ -225,6 +253,49 @@ mod tests {
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .unwrap(),
       SCHEMA_VERSION,
+    );
+  }
+
+  #[test]
+  fn open_file_creates_private_database() {
+    let root = tempfile::tempdir().unwrap();
+
+    let path = root.path().join("foo/history.db");
+
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+    let database = Database::open_file(&path).unwrap();
+
+    assert_eq!(
+      (
+        path.is_file(),
+        database
+          .connection()
+          .pragma_query_value(None, "journal_mode", |row| {
+            row.get::<_, String>(0)
+          })
+          .unwrap(),
+        database
+          .connection()
+          .pragma_query_value(None, "busy_timeout", |row| {
+            row.get::<_, i64>(0)
+          })
+          .unwrap(),
+      ),
+      (true, "wal".into(), 5000),
+    );
+
+    #[cfg(unix)]
+    assert_eq!(
+      (
+        fs::metadata(path.parent().unwrap())
+          .unwrap()
+          .permissions()
+          .mode()
+          & 0o777,
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+      ),
+      (0o700, 0o600),
     );
   }
 

@@ -2,8 +2,14 @@ use {
   anyhow::{self, Context, Result, bail},
   execution::Execution,
   rusqlite::{Connection, params},
-  std::path::{Path, PathBuf},
+  std::{
+    fs,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    time::Duration,
+  },
   uuid::Uuid,
+  xdg::BaseDirectories,
 };
 
 pub mod database;
