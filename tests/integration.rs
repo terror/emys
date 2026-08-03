@@ -100,14 +100,6 @@ impl Test {
     }
   }
 
-  fn init(&self) -> Result<String> {
-    self
-      .command()
-      .arguments(["init", "zsh"])
-      .expected_stdout(include_str!("../src/subcommand/init.zsh"))
-      .run()
-  }
-
   fn new() -> Result<Self> {
     Ok(Self {
       arguments: Vec::new(),
@@ -353,7 +345,11 @@ fn import_zsh_histfile() -> Result {
 fn init_zsh() -> Result {
   let test = Test::new()?;
 
-  let script = test.init()?;
+  let script = test
+    .command()
+    .arguments(["init", "zsh"])
+    .expected_stdout(include_str!("../src/subcommand/init.zsh"))
+    .run()?;
 
   let mut zsh = match Command::new("zsh")
     .arg("-n")
@@ -461,7 +457,11 @@ fn search() -> Result {
 fn zsh_records_execution() -> Result {
   let test = Test::new()?;
 
-  let script = test.init()?;
+  let script = test
+    .command()
+    .arguments(["init", "zsh"])
+    .expected_stdout(include_str!("../src/subcommand/init.zsh"))
+    .run()?;
 
   let path = env::join_paths(
     once(
