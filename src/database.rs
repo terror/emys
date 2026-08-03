@@ -112,6 +112,59 @@ impl Database {
     self.backup_inner(path.as_ref(), true)
   }
 
+  pub(crate) fn import(&self, records: &[(Uuid, Execution)]) -> Result<usize> {
+    let transaction = self.connection.unchecked_transaction()?;
+
+    let inserted = {
+      let mut statement = transaction.prepare(
+        "INSERT INTO executions (
+          id,
+          command,
+          timestamp_ns,
+          duration_ns,
+          exit_code,
+          directory,
+          session,
+          hostname,
+          shell
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(id) DO NOTHING",
+      )?;
+
+      let mut inserted = 0;
+
+      for (id, execution) in records {
+        let directory = execution
+          .directory
+          .as_ref()
+          .map(|directory| {
+            directory
+              .to_str()
+              .context("execution directory is not valid UTF-8")
+          })
+          .transpose()?;
+
+        inserted += statement.execute(params![
+          id.to_string(),
+          execution.command,
+          execution.timestamp_ns,
+          execution.duration_ns,
+          execution.exit_code,
+          directory,
+          execution.session,
+          execution.hostname,
+          execution.shell,
+        ])?;
+      }
+
+      inserted
+    };
+
+    transaction.commit()?;
+
+    Ok(inserted)
+  }
+
   pub(crate) fn insert(&self, execution: &Execution) -> Result<Uuid> {
     let id = Uuid::new_v4();
 
@@ -464,6 +517,128 @@ mod tests {
         .unwrap()
         .len(),
       2
+    );
+  }
+
+  #[test]
+  fn import_inserts_and_is_idempotent() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    let records = vec![
+      (
+        Uuid::from_u128(1),
+        Execution {
+          command: "foo".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+      ),
+      (
+        Uuid::from_u128(2),
+        Execution {
+          command: "bar".into(),
+          timestamp_ns: 2,
+          ..Default::default()
+        },
+      ),
+    ];
+
+    assert_eq!(
+      (
+        database.import(&records).unwrap(),
+        database.import(&records).unwrap(),
+        database.recent(20).unwrap(),
+      ),
+      (2, 0, records.into_iter().rev().collect()),
+    );
+  }
+
+  #[test]
+  fn import_preserves_repeated_commands_and_metadata() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    let first = (
+      Uuid::from_u128(1),
+      Execution {
+        command: "foo".into(),
+        timestamp_ns: 1,
+        duration_ns: Some(2),
+        exit_code: Some(3),
+        directory: Some("/foo".into()),
+        session: Some("bar".into()),
+        hostname: Some("foo".into()),
+        shell: Some("zsh".into()),
+      },
+    );
+
+    let second = (
+      Uuid::from_u128(2),
+      Execution {
+        command: "foo".into(),
+        timestamp_ns: 4,
+        duration_ns: Some(5),
+        exit_code: Some(6),
+        directory: Some("/bar".into()),
+        session: Some("foo".into()),
+        hostname: Some("bar".into()),
+        shell: Some("zsh".into()),
+      },
+    );
+
+    assert_eq!(
+      database.import(&[first.clone(), second.clone()]).unwrap(),
+      2
+    );
+    assert_eq!(
+      (
+        database.recent(20).unwrap(),
+        database.search("foo", 20).unwrap()
+      ),
+      (vec![second.clone(), first], vec![second]),
+    );
+  }
+
+  #[test]
+  fn import_rolls_back_complete_batch_on_constraint_failure() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    let error = database
+      .import(&[
+        (
+          Uuid::from_u128(1),
+          Execution {
+            command: "foo".into(),
+            ..Default::default()
+          },
+        ),
+        (
+          Uuid::from_u128(2),
+          Execution {
+            command: "bar".into(),
+            duration_ns: Some(-1),
+            ..Default::default()
+          },
+        ),
+      ])
+      .unwrap_err();
+
+    let error = error.downcast_ref::<rusqlite::Error>().unwrap();
+
+    assert_eq!(
+      (
+        error.sqlite_error_code(),
+        error.to_string(),
+        database.recent(20).unwrap(),
+      ),
+      (
+        Some(rusqlite::ffi::ErrorCode::ConstraintViolation),
+        "CHECK constraint failed: duration_ns IS NULL OR duration_ns >= 0"
+          .into(),
+        Vec::new(),
+      ),
     );
   }
 

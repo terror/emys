@@ -1,9 +1,6 @@
 use {
   anyhow::{Context, Error, bail},
-  arguments::Arguments,
   clap::{Parser, ValueEnum},
-  database::Database,
-  execution::Execution,
   rusqlite::{Connection, MAIN_DB, params},
   std::{
     env, fs,
@@ -11,8 +8,12 @@ use {
     process,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
-  subcommand::Subcommand,
   uuid::Uuid,
+};
+
+use {
+  arguments::Arguments, database::Database, execution::Execution, shell::Shell,
+  subcommand::Subcommand,
 };
 
 #[cfg(unix)]
@@ -25,7 +26,9 @@ use {
 mod arguments;
 mod database;
 mod execution;
+mod shell;
 mod subcommand;
+mod zsh_history;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 

@@ -1,7 +1,7 @@
 use {
   rusqlite::Connection,
   std::{
-    env,
+    env, fs,
     io::{self, Write},
     iter::once,
     path::Path,
@@ -156,6 +156,135 @@ fn backup() {
         .unwrap(),
     ),
     (true, String::new(), String::new(), 2),
+  );
+}
+
+#[test]
+fn import_zsh() {
+  let directory = tempdir().unwrap();
+
+  let binary = env!("CARGO_BIN_EXE_emys");
+  let history = directory.path().join("history");
+
+  fs::write(&history, "git status\n: 1700000000:2;cargo test\n").unwrap();
+
+  let import = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["import", "zsh"])
+    .arg(&history)
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      import.status.success(),
+      String::from_utf8(import.stdout).unwrap(),
+      String::from_utf8(import.stderr).unwrap(),
+    ),
+    (
+      true,
+      format!("imported 2 executions from {}\n", history.display()),
+      String::new(),
+    ),
+  );
+
+  let database = directory.path().join("emys/history.db");
+  let connection = Connection::open(&database).unwrap();
+  let rows = connection
+    .prepare(
+      "SELECT command, timestamp_ns, duration_ns, shell
+       FROM executions
+       ORDER BY timestamp_ns DESC",
+    )
+    .unwrap()
+    .query_map([], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, i64>(1)?,
+        row.get::<_, Option<i64>>(2)?,
+        row.get::<_, Option<String>>(3)?,
+      ))
+    })
+    .unwrap()
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .unwrap();
+
+  assert_eq!(
+    rows,
+    vec![
+      (
+        "cargo test".into(),
+        1_700_000_000_000_000_000,
+        Some(2_000_000_000),
+        Some("zsh".into()),
+      ),
+      ("git status".into(), 1, None, Some("zsh".into())),
+    ],
+  );
+
+  drop(connection);
+
+  let reimport = Command::new(binary)
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["import", "zsh"])
+    .arg(&history)
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      reimport.status.success(),
+      String::from_utf8(reimport.stdout).unwrap(),
+      String::from_utf8(reimport.stderr).unwrap(),
+      Connection::open(database)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
+          row.get::<_, i64>(0)
+        })
+        .unwrap(),
+    ),
+    (
+      true,
+      format!("imported 0 executions from {}\n", history.display()),
+      String::new(),
+      2,
+    ),
+  );
+}
+
+#[test]
+fn import_zsh_histfile() {
+  let directory = tempdir().unwrap();
+
+  let history = directory.path().join("history");
+
+  fs::write(&history, "foo\n").unwrap();
+
+  let import = Command::new(env!("CARGO_BIN_EXE_emys"))
+    .env("HISTFILE", &history)
+    .env("XDG_DATA_HOME", directory.path())
+    .args(["import", "zsh"])
+    .output()
+    .unwrap();
+
+  assert_eq!(
+    (
+      import.status.success(),
+      String::from_utf8(import.stdout).unwrap(),
+      String::from_utf8(import.stderr).unwrap(),
+      Connection::open(directory.path().join("emys/history.db"))
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
+          row.get::<_, i64>(0)
+        })
+        .unwrap(),
+    ),
+    (
+      true,
+      format!("imported 1 executions from {}\n", history.display()),
+      String::new(),
+      1,
+    ),
   );
 }
 
