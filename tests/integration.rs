@@ -48,6 +48,7 @@ impl Test {
         .into_iter()
         .map(|argument| argument.as_ref().to_owned()),
     );
+
     self
   }
 
@@ -74,6 +75,7 @@ impl Test {
     self
       .environments
       .push((key.as_ref().to_owned(), value.as_ref().to_owned()));
+
     self
   }
 
