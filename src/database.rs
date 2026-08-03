@@ -190,26 +190,7 @@ impl Database {
       directory.join("history.db")
     };
 
-    Self::open_file(&path)
-  }
-
-  fn open_file(path: &Path) -> Result<Self> {
-    #[cfg(unix)]
-    let directory = path
-      .parent()
-      .context("database path has no parent directory")?;
-
-    #[cfg(unix)]
-    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-
-    let database = Self::open(path).with_context(|| {
-      format!("failed to open database `{}`", path.display())
-    })?;
-
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-
-    Ok(database)
+    Self::try_from(path.as_path())
   }
 
   pub(crate) fn recent(&self, limit: usize) -> Result<Vec<(Uuid, Execution)>> {
@@ -379,6 +360,29 @@ impl TryFrom<Connection> for Database {
     transaction.commit()?;
 
     Ok(Self { connection })
+  }
+}
+
+impl TryFrom<&Path> for Database {
+  type Error = Error;
+
+  fn try_from(path: &Path) -> Result<Self> {
+    #[cfg(unix)]
+    let directory = path
+      .parent()
+      .context("database path has no parent directory")?;
+
+    #[cfg(unix)]
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+
+    let database = Self::open(path).with_context(|| {
+      format!("failed to open database `{}`", path.display())
+    })?;
+
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+
+    Ok(database)
   }
 }
 
@@ -708,14 +712,14 @@ mod tests {
   }
 
   #[test]
-  fn open_file_creates_private_database() {
+  fn try_from_path_creates_private_database() {
     let root = tempfile::tempdir().unwrap();
 
     let path = root.path().join("foo/history.db");
 
     fs::create_dir_all(path.parent().unwrap()).unwrap();
 
-    let database = Database::open_file(&path).unwrap();
+    let database = Database::try_from(path.as_path()).unwrap();
 
     assert_eq!(
       (
