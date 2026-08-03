@@ -1,107 +1,207 @@
 use {
+  anyhow::Error,
+  indoc::formatdoc,
   rusqlite::Connection,
   std::{
-    env, fs,
+    env,
+    ffi::{OsStr, OsString},
+    fs,
     io::{self, Write},
     iter::once,
-    path::Path,
-    process::{Command, Output, Stdio},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    rc::Rc,
+    str,
   },
-  tempfile::tempdir,
+  tempfile::TempDir,
 };
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-fn init(binary: &str, directory: &Path) -> Output {
-  Command::new(binary)
-    .env("XDG_DATA_HOME", directory)
-    .args(["init", "zsh"])
-    .output()
-    .unwrap()
+type Result<T = (), E = Error> = std::result::Result<T, E>;
+
+#[derive(Debug)]
+struct Test {
+  arguments: Vec<OsString>,
+  environments: Vec<(OsString, OsString)>,
+  expected_status: i32,
+  expected_stderr: String,
+  expected_stdout: String,
+  tempdir: Rc<TempDir>,
 }
 
-fn record(binary: &str, directory: &Path) -> Output {
-  Command::new(binary)
-    .env("XDG_DATA_HOME", directory)
-    .args([
-      "add",
-      "--directory",
-      "/foo",
-      "--duration-ns",
-      "2",
-      "--exit-code",
-      "0",
-      "--hostname",
-      "foo",
-      "--session",
-      "bar",
-      "--shell",
-      "zsh",
-      "--timestamp-ns",
-      "1",
-      "--",
-      "foo",
-    ])
-    .output()
-    .unwrap()
+impl Test {
+  fn argument(mut self, argument: impl AsRef<OsStr>) -> Self {
+    self.arguments.push(argument.as_ref().to_owned());
+    self
+  }
+
+  fn arguments<I, S>(mut self, arguments: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+  {
+    self.arguments.extend(
+      arguments
+        .into_iter()
+        .map(|argument| argument.as_ref().to_owned()),
+    );
+    self
+  }
+
+  fn command(&self) -> Self {
+    Self {
+      arguments: Vec::new(),
+      environments: Vec::new(),
+      expected_status: 0,
+      expected_stderr: String::new(),
+      expected_stdout: String::new(),
+      tempdir: Rc::clone(&self.tempdir),
+    }
+  }
+
+  fn database(&self) -> Result<Connection> {
+    Ok(Connection::open(self.path("emys/history.db"))?)
+  }
+
+  fn environment(
+    mut self,
+    key: impl AsRef<OsStr>,
+    value: impl AsRef<OsStr>,
+  ) -> Self {
+    self
+      .environments
+      .push((key.as_ref().to_owned(), value.as_ref().to_owned()));
+    self
+  }
+
+  fn expected_status(self, expected_status: i32) -> Self {
+    Self {
+      expected_status,
+      ..self
+    }
+  }
+
+  fn expected_stderr(self, expected_stderr: &str) -> Self {
+    Self {
+      expected_stderr: expected_stderr.into(),
+      ..self
+    }
+  }
+
+  fn expected_stdout(self, expected_stdout: &str) -> Self {
+    Self {
+      expected_stdout: expected_stdout.into(),
+      ..self
+    }
+  }
+
+  fn init(&self) -> Result<String> {
+    self
+      .command()
+      .arguments(["init", "zsh"])
+      .expected_stdout(include_str!("../src/subcommand/init.zsh"))
+      .run()
+  }
+
+  fn new() -> Result<Self> {
+    Ok(Self {
+      arguments: Vec::new(),
+      environments: Vec::new(),
+      expected_status: 0,
+      expected_stderr: String::new(),
+      expected_stdout: String::new(),
+      tempdir: Rc::new(TempDir::with_prefix("emys-test")?),
+    })
+  }
+
+  fn path(&self, path: impl AsRef<Path>) -> PathBuf {
+    self.tempdir.path().join(path)
+  }
+
+  fn record(&self) -> Result {
+    self
+      .command()
+      .arguments([
+        "add",
+        "--directory",
+        "/foo",
+        "--duration-ns",
+        "2",
+        "--exit-code",
+        "0",
+        "--hostname",
+        "foo",
+        "--session",
+        "bar",
+        "--shell",
+        "zsh",
+        "--timestamp-ns",
+        "1",
+        "--",
+        "foo",
+      ])
+      .run()?;
+
+    Ok(())
+  }
+
+  fn run(self) -> Result<String> {
+    let output = Command::new(env!("CARGO_BIN_EXE_emys"))
+      .env("XDG_DATA_HOME", self.tempdir.path())
+      .envs(self.environments)
+      .args(self.arguments)
+      .output()?;
+
+    let normalize = |text: &str| {
+      text
+        .replace(&self.tempdir.path().display().to_string(), "[ROOT]")
+        .replace('\\', "/")
+    };
+
+    let stderr = normalize(str::from_utf8(&output.stderr)?);
+
+    assert_eq!(
+      output.status.code(),
+      Some(self.expected_status),
+      "unexpected exit status\nstderr: {stderr}",
+    );
+
+    assert_eq!(stderr, self.expected_stderr);
+
+    let stdout = normalize(str::from_utf8(&output.stdout)?);
+
+    assert_eq!(stdout, self.expected_stdout);
+
+    Ok(stdout)
+  }
 }
 
 #[test]
-fn add() {
-  let directory = tempdir().unwrap();
-
-  let binary = env!("CARGO_BIN_EXE_emys");
-
-  let add = record(binary, directory.path());
-
-  assert_eq!(
-    (
-      add.status.success(),
-      String::from_utf8(add.stdout).unwrap(),
-      String::from_utf8(add.stderr).unwrap(),
-    ),
-    (true, String::new(), String::new()),
-  );
+fn add() -> Result {
+  Test::new()?.record()
 }
 
 #[test]
-fn backup() {
-  let directory = tempdir().unwrap();
+fn backup() -> Result {
+  let test = Test::new()?;
 
-  let binary = env!("CARGO_BIN_EXE_emys");
-  let path = directory.path().join("foo/bar/emys.sqlite");
+  let path = test.path("foo/bar/emys.sqlite");
 
-  assert!(record(binary, directory.path()).status.success());
+  test.record()?;
 
-  let backup = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .arg("backup")
-    .arg(&path)
-    .output()
-    .unwrap();
+  test.command().argument("backup").argument(&path).run()?;
+
+  let connection = Connection::open(&path)?;
 
   assert_eq!(
     (
-      backup.status.success(),
-      String::from_utf8(backup.stdout).unwrap(),
-      String::from_utf8(backup.stderr).unwrap(),
-    ),
-    (true, String::new(), String::new()),
-  );
-
-  let connection = Connection::open(&path).unwrap();
-
-  assert_eq!(
-    (
-      connection
-        .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
-        .unwrap(),
-      connection
-        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
-          row.get::<_, i64>(0)
-        })
-        .unwrap(),
+      connection.query_row("PRAGMA integrity_check", [], |row| row
+        .get::<_, String>(0))?,
+      connection.query_row("SELECT COUNT(*) FROM executions", [], |row| {
+        row.get::<_, i64>(0)
+      })?,
     ),
     ("ok".into(), 1),
   );
@@ -109,94 +209,61 @@ fn backup() {
   drop(connection);
 
   #[cfg(unix)]
-  assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o600,);
+  assert_eq!(path.metadata()?.permissions().mode() & 0o777, 0o600);
 
-  let existing = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .arg("backup")
-    .arg(&path)
-    .output()
-    .unwrap();
+  test
+    .command()
+    .argument("backup")
+    .argument(&path)
+    .expected_status(1)
+    .expected_stderr(
+      "error: backup `[ROOT]/foo/bar/emys.sqlite` already exists; use --force to overwrite it\n",
+    )
+    .run()?;
 
-  assert_eq!(
-    (
-      existing.status.success(),
-      String::from_utf8(existing.stdout).unwrap(),
-      String::from_utf8(existing.stderr).unwrap(),
-    ),
-    (
-      false,
-      String::new(),
-      format!(
-        "error: backup `{}` already exists; use --force to overwrite it\n",
-        path.display(),
-      ),
-    ),
-  );
+  test.record()?;
 
-  assert!(record(binary, directory.path()).status.success());
-
-  let forced = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["backup", "--force"])
-    .arg(&path)
-    .output()
-    .unwrap();
+  test
+    .command()
+    .arguments(["backup", "--force"])
+    .argument(&path)
+    .run()?;
 
   assert_eq!(
-    (
-      forced.status.success(),
-      String::from_utf8(forced.stdout).unwrap(),
-      String::from_utf8(forced.stderr).unwrap(),
-      Connection::open(path)
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
-          row.get::<_, i64>(0)
-        })
-        .unwrap(),
-    ),
-    (true, String::new(), String::new(), 2),
+    Connection::open(path)?.query_row(
+      "SELECT COUNT(*) FROM executions",
+      [],
+      |row| { row.get::<_, i64>(0) }
+    )?,
+    2,
   );
+
+  Ok(())
 }
 
 #[test]
-fn import_zsh() {
-  let directory = tempdir().unwrap();
+fn import_zsh() -> Result {
+  let test = Test::new()?;
 
-  let binary = env!("CARGO_BIN_EXE_emys");
-  let history = directory.path().join("history");
+  let history = test.path("history");
 
-  fs::write(&history, "git status\n: 1700000000:2;cargo test\n").unwrap();
+  fs::write(&history, "git status\n: 1700000000:2;cargo test\n")?;
 
-  let import = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["import", "zsh"])
-    .arg(&history)
-    .output()
-    .unwrap();
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 2 executions from [ROOT]/history\n")
+    .run()?;
 
-  assert_eq!(
-    (
-      import.status.success(),
-      String::from_utf8(import.stdout).unwrap(),
-      String::from_utf8(import.stderr).unwrap(),
-    ),
-    (
-      true,
-      format!("imported 2 executions from {}\n", history.display()),
-      String::new(),
-    ),
-  );
+  let connection = test.database()?;
 
-  let database = directory.path().join("emys/history.db");
-  let connection = Connection::open(&database).unwrap();
   let rows = connection
     .prepare(
       "SELECT command, timestamp_ns, duration_ns, shell
        FROM executions
        ORDER BY timestamp_ns DESC",
-    )
-    .unwrap()
+    )?
     .query_map([], |row| {
       Ok((
         row.get::<_, String>(0)?,
@@ -204,10 +271,8 @@ fn import_zsh() {
         row.get::<_, Option<i64>>(2)?,
         row.get::<_, Option<String>>(3)?,
       ))
-    })
-    .unwrap()
-    .collect::<rusqlite::Result<Vec<_>>>()
-    .unwrap();
+    })?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
 
   assert_eq!(
     rows,
@@ -224,98 +289,57 @@ fn import_zsh() {
 
   drop(connection);
 
-  let reimport = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["import", "zsh"])
-    .arg(&history)
-    .output()
-    .unwrap();
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 0 executions from [ROOT]/history\n")
+    .run()?;
 
   assert_eq!(
-    (
-      reimport.status.success(),
-      String::from_utf8(reimport.stdout).unwrap(),
-      String::from_utf8(reimport.stderr).unwrap(),
-      Connection::open(database)
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
-          row.get::<_, i64>(0)
-        })
-        .unwrap(),
-    ),
-    (
-      true,
-      format!("imported 0 executions from {}\n", history.display()),
-      String::new(),
-      2,
-    ),
+    test.database()?.query_row(
+      "SELECT COUNT(*) FROM executions",
+      [],
+      |row| { row.get::<_, i64>(0) }
+    )?,
+    2,
   );
+
+  Ok(())
 }
 
 #[test]
-fn import_zsh_histfile() {
-  let directory = tempdir().unwrap();
+fn import_zsh_histfile() -> Result {
+  let test = Test::new()?;
 
-  let history = directory.path().join("history");
+  let history = test.path("history");
 
-  fs::write(&history, "foo\n").unwrap();
+  fs::write(&history, "foo\n")?;
 
-  let import = Command::new(env!("CARGO_BIN_EXE_emys"))
-    .env("HISTFILE", &history)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["import", "zsh"])
-    .output()
-    .unwrap();
+  test
+    .command()
+    .environment("HISTFILE", &history)
+    .arguments(["import", "zsh"])
+    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .run()?;
 
   assert_eq!(
-    (
-      import.status.success(),
-      String::from_utf8(import.stdout).unwrap(),
-      String::from_utf8(import.stderr).unwrap(),
-      Connection::open(directory.path().join("emys/history.db"))
-        .unwrap()
-        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
-          row.get::<_, i64>(0)
-        })
-        .unwrap(),
-    ),
-    (
-      true,
-      format!("imported 1 executions from {}\n", history.display()),
-      String::new(),
-      1,
-    ),
+    test.database()?.query_row(
+      "SELECT COUNT(*) FROM executions",
+      [],
+      |row| { row.get::<_, i64>(0) }
+    )?,
+    1,
   );
+
+  Ok(())
 }
 
 #[test]
-fn init_zsh() {
-  let directory = tempdir().unwrap();
+fn init_zsh() -> Result {
+  let test = Test::new()?;
 
-  let binary = env!("CARGO_BIN_EXE_emys");
-
-  let init = init(binary, directory.path());
-
-  let script = String::from_utf8(init.stdout).unwrap();
-
-  assert_eq!(
-    (
-      init.status.success(),
-      script.contains("command emys search --interactive -- \"$BUFFER\""),
-      script.contains("zle -N emys-search _emys_search"),
-      script.contains("bindkey '^R' emys-search"),
-      script.as_str(),
-      String::from_utf8(init.stderr).unwrap(),
-    ),
-    (
-      true,
-      true,
-      true,
-      true,
-      include_str!("../src/subcommand/init.zsh"),
-      String::new(),
-    ),
-  );
+  let script = test.init()?;
 
   let mut zsh = match Command::new("zsh")
     .arg("-n")
@@ -325,215 +349,171 @@ fn init_zsh() {
     .spawn()
   {
     Ok(zsh) => zsh,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
     Err(error) => panic!("failed to run zsh: {error}"),
   };
 
-  zsh
-    .stdin
-    .take()
-    .unwrap()
-    .write_all(script.as_bytes())
-    .unwrap();
+  zsh.stdin.take().unwrap().write_all(script.as_bytes())?;
 
-  let output = zsh.wait_with_output().unwrap();
+  let output = zsh.wait_with_output()?;
 
   assert_eq!(
     (
       output.status.success(),
-      String::from_utf8(output.stdout).unwrap(),
-      String::from_utf8(output.stderr).unwrap(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
     ),
     (true, String::new(), String::new()),
   );
+
+  Ok(())
 }
 
 #[cfg(unix)]
 #[test]
-fn interactive_search_empty() {
-  let directory = tempdir().unwrap();
+fn interactive_search_empty() -> Result {
+  Test::new()?
+    .command()
+    .arguments(["search", "--interactive", "--", "foo"])
+    .run()?;
 
-  let search = Command::new(env!("CARGO_BIN_EXE_emys"))
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["search", "--interactive", "--", "foo"])
-    .output()
-    .unwrap();
-
-  assert_eq!(
-    (
-      search.status.success(),
-      String::from_utf8(search.stdout).unwrap(),
-      String::from_utf8(search.stderr).unwrap(),
-    ),
-    (true, String::new(), String::new()),
-  );
+  Ok(())
 }
 
 #[cfg(not(unix))]
 #[test]
-fn interactive_search_unsupported() {
-  let directory = tempdir().unwrap();
+fn interactive_search_unsupported() -> Result {
+  Test::new()?
+    .command()
+    .arguments(["search", "--interactive", "--", "foo"])
+    .expected_status(1)
+    .expected_stderr(
+      "error: interactive search is unsupported on this platform\n",
+    )
+    .run()?;
 
-  let search = Command::new(env!("CARGO_BIN_EXE_emys"))
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["search", "--interactive", "--", "foo"])
-    .output()
-    .unwrap();
-
-  assert_eq!(
-    (
-      search.status.success(),
-      String::from_utf8(search.stdout).unwrap(),
-      String::from_utf8(search.stderr).unwrap(),
-    ),
-    (
-      false,
-      String::new(),
-      "error: interactive search is unsupported on this platform\n".into(),
-    ),
-  );
+  Ok(())
 }
 
 #[test]
-fn list() {
-  let directory = tempdir().unwrap();
+fn list() -> Result {
+  let test = Test::new()?;
 
-  let binary = env!("CARGO_BIN_EXE_emys");
+  test.record()?;
 
-  assert!(record(binary, directory.path()).status.success());
+  test
+    .command()
+    .arguments(["list", "--limit", "1"])
+    .expected_stdout("1\t0\tfoo\n")
+    .run()?;
 
-  let list = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["list", "--limit", "1"])
-    .output()
-    .unwrap();
-
-  assert_eq!(
-    (
-      list.status.success(),
-      String::from_utf8(list.stdout).unwrap(),
-      String::from_utf8(list.stderr).unwrap(),
-    ),
-    (true, "1\t0\tfoo\n".into(), String::new()),
-  );
+  Ok(())
 }
 
 #[test]
-fn search() {
-  let directory = tempdir().unwrap();
+fn search() -> Result {
+  let test = Test::new()?;
 
-  let binary = env!("CARGO_BIN_EXE_emys");
+  test.record()?;
 
-  assert!(record(binary, directory.path()).status.success());
+  test
+    .command()
+    .arguments(["search", "--limit", "20", "FO"])
+    .expected_stdout("1\t0\tfoo\n")
+    .run()?;
 
-  let search = Command::new(binary)
-    .env("XDG_DATA_HOME", directory.path())
-    .args(["search", "--limit", "20", "FO"])
-    .output()
-    .unwrap();
-
-  assert_eq!(
-    (
-      search.status.success(),
-      String::from_utf8(search.stdout).unwrap(),
-      String::from_utf8(search.stderr).unwrap(),
-    ),
-    (true, "1\t0\tfoo\n".into(), String::new()),
-  );
+  Ok(())
 }
 
 #[test]
-fn zsh_records_execution() {
-  let directory = tempdir().unwrap();
+fn zsh_records_execution() -> Result {
+  let test = Test::new()?;
 
-  let binary = env!("CARGO_BIN_EXE_emys");
-
-  let script =
-    String::from_utf8(init(binary, directory.path()).stdout).unwrap();
-
-  let path = env::var_os("PATH").unwrap_or_default();
+  let script = test.init()?;
 
   let path = env::join_paths(
-    once(Path::new(binary).parent().unwrap().to_path_buf())
-      .chain(env::split_paths(&path)),
-  )
-  .unwrap();
+    once(
+      Path::new(env!("CARGO_BIN_EXE_emys"))
+        .parent()
+        .unwrap()
+        .to_path_buf(),
+    )
+    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+  )?;
 
   let mut zsh = match Command::new("zsh")
     .arg("-f")
     .env("PATH", path)
-    .env("XDG_DATA_HOME", directory.path())
+    .env("XDG_DATA_HOME", test.tempdir.path())
     .stdin(Stdio::piped())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
     .spawn()
   {
     Ok(zsh) => zsh,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
     Err(error) => panic!("failed to run zsh: {error}"),
   };
 
-  zsh
-    .stdin
-    .take()
-    .unwrap()
-    .write_all(
-      format!(
-        "{script}\nadd-zsh-hook -d preexec _emys_preexec\nadd-zsh-hook -d precmd _emys_precmd\n_emys_preexec 'foo'\nfalse\n_emys_precmd\n_emys_precmd\n",
-      )
-      .as_bytes(),
-    )
-    .unwrap();
+  zsh.stdin.take().unwrap().write_all(
+    formatdoc! {
+      "
+        {script}
+        add-zsh-hook -d preexec _emys_preexec
+        add-zsh-hook -d precmd _emys_precmd
+        _emys_preexec 'foo'
+        false
+        _emys_precmd
+        _emys_precmd
+        "
+    }
+    .as_bytes(),
+  )?;
 
-  let output = zsh.wait_with_output().unwrap();
+  let output = zsh.wait_with_output()?;
 
   assert_eq!(
     (
       output.status.code(),
-      String::from_utf8(output.stdout).unwrap(),
-      String::from_utf8(output.stderr).unwrap(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
     ),
     (Some(1), String::new(), String::new()),
   );
 
-  let connection =
-    Connection::open(directory.path().join("emys/history.db")).unwrap();
-
   assert_eq!(
-    connection
-      .query_row(
-        "SELECT
-          COUNT(*),
-          command,
-          exit_code,
-          directory,
-          session <> '',
-          hostname <> '',
-          shell,
-          timestamp_ns > 0,
-          duration_ns >= 0
-        FROM executions",
-        [],
-        |row| {
-          Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i32>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, bool>(4)?,
-            row.get::<_, bool>(5)?,
-            row.get::<_, String>(6)?,
-            row.get::<_, bool>(7)?,
-            row.get::<_, bool>(8)?,
-          ))
-        },
-      )
-      .unwrap(),
+    test.database()?.query_row(
+      "SELECT
+        COUNT(*),
+        command,
+        exit_code,
+        directory,
+        session <> '',
+        hostname <> '',
+        shell,
+        timestamp_ns > 0,
+        duration_ns >= 0
+      FROM executions",
+      [],
+      |row| {
+        Ok((
+          row.get::<_, i64>(0)?,
+          row.get::<_, String>(1)?,
+          row.get::<_, i32>(2)?,
+          row.get::<_, String>(3)?,
+          row.get::<_, bool>(4)?,
+          row.get::<_, bool>(5)?,
+          row.get::<_, String>(6)?,
+          row.get::<_, bool>(7)?,
+          row.get::<_, bool>(8)?,
+        ))
+      },
+    )?,
     (
       1,
       "foo".into(),
       1,
-      env::current_dir().unwrap().to_string_lossy().into_owned(),
+      env::current_dir()?.to_string_lossy().into_owned(),
       true,
       true,
       "zsh".into(),
@@ -541,4 +521,6 @@ fn zsh_records_execution() {
       true,
     ),
   );
+
+  Ok(())
 }
