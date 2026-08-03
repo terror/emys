@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Execution {
   pub command: String,
   pub timestamp_ns: i64,
