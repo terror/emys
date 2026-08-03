@@ -5,7 +5,6 @@ use {
   database::Database,
   execution::Execution,
   rusqlite::{Connection, MAIN_DB, params},
-  shell::Shell,
   std::{
     env, fs,
     path::{Path, PathBuf},
@@ -26,9 +25,8 @@ use {
 mod arguments;
 mod database;
 mod execution;
-mod shell;
+mod history;
 mod subcommand;
-mod zsh_history;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 

@@ -1,40 +1,39 @@
-use {super::*, std::collections::HashMap};
+use super::*;
 
-const NAMESPACE: Uuid = Uuid::from_u128(0x81d6d1f2_748f_5b72_89b6_bf87e06a762d);
 const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
 
-fn identifier(
-  command: &str,
-  occurrence: u64,
-  timing: Option<(i64, i64)>,
-) -> Uuid {
-  let mut name = Vec::with_capacity(command.len() + 64);
-
-  frame(
-    &mut name,
-    if timing.is_some() {
-      b"extended"
-    } else {
-      b"plain"
-    },
-  );
-  frame(&mut name, b"zsh");
-  frame(&mut name, command.as_bytes());
-
-  if let Some((timestamp_ns, duration_ns)) = timing {
-    frame(&mut name, &timestamp_ns.to_be_bytes());
-    frame(&mut name, &duration_ns.to_be_bytes());
-  }
-
-  frame(&mut name, &occurrence.to_be_bytes());
-
-  Uuid::new_v5(&NAMESPACE, &name)
+#[derive(Debug, clap::Args)]
+pub(crate) struct Zsh {
+  #[arg(value_name = "PATH")]
+  path: Option<PathBuf>,
 }
 
-fn frame(destination: &mut Vec<u8>, value: &[u8]) {
-  destination
-    .extend_from_slice(&u64::try_from(value.len()).unwrap().to_be_bytes());
-  destination.extend_from_slice(value);
+impl HistoryImporter for Zsh {
+  const FORMAT: &'static str = "zsh";
+  const NAME: &'static str = "Zsh";
+
+  fn parse(&self, contents: &[u8]) -> Result<Vec<ImportedExecution>> {
+    parse_history(contents)
+  }
+
+  fn path(&self) -> Result<PathBuf> {
+    self
+      .path
+      .clone()
+      .or_else(|| {
+        env::var_os("HISTFILE")
+          .filter(|path| !path.is_empty())
+          .map(PathBuf::from)
+      })
+      .or_else(|| {
+        env::var_os("HOME")
+          .filter(|path| !path.is_empty())
+          .map(|path| PathBuf::from(path).join(".zsh_history"))
+      })
+      .context(
+        "failed to determine Zsh history path; pass PATH or set HISTFILE or HOME",
+      )
+  }
 }
 
 fn logical_entries(contents: &str) -> Vec<(usize, String)> {
@@ -70,9 +69,10 @@ fn logical_entries(contents: &str) -> Vec<(usize, String)> {
   entries
 }
 
-pub(crate) fn parse(contents: &str) -> Result<Vec<(Uuid, Execution)>> {
-  let mut extended_occurrences = HashMap::new();
-  let mut plain_occurrences = HashMap::new();
+fn parse_history(contents: &[u8]) -> Result<Vec<ImportedExecution>> {
+  let contents =
+    std::str::from_utf8(contents).context("Zsh history is not valid UTF-8")?;
+
   let mut plain_timestamp_ns = 0_i64;
   let mut records = Vec::new();
 
@@ -84,18 +84,14 @@ pub(crate) fn parse(contents: &str) -> Result<Vec<(Uuid, Execution)>> {
         continue;
       }
 
-      let key = (command.to_owned(), timestamp_ns, duration_ns);
-      let occurrence = extended_occurrences.entry(key).or_insert(0_u64);
-      *occurrence = occurrence
-        .checked_add(1)
-        .context("extended history occurrence count overflowed")?;
-
-      records.push((
-        identifier(command, *occurrence, Some((timestamp_ns, duration_ns))),
+      records.push(ImportedExecution::new(
+        Identity::new(b"extended")
+          .field(command)
+          .field(timestamp_ns.to_be_bytes())
+          .field(duration_ns.to_be_bytes()),
         Execution {
           command: command.into(),
           duration_ns: Some(duration_ns),
-          shell: Some("zsh".into()),
           timestamp_ns,
           ..Default::default()
         },
@@ -104,17 +100,11 @@ pub(crate) fn parse(contents: &str) -> Result<Vec<(Uuid, Execution)>> {
       plain_timestamp_ns = plain_timestamp_ns
         .checked_add(1)
         .context("plain history timestamp exceeds SQLite integer range")?;
-      let occurrence =
-        plain_occurrences.entry(command.clone()).or_insert(0_u64);
-      *occurrence = occurrence
-        .checked_add(1)
-        .context("plain history occurrence count overflowed")?;
 
-      records.push((
-        identifier(&command, *occurrence, None),
+      records.push(ImportedExecution::new(
+        Identity::new(b"plain").field(&command),
         Execution {
           command,
-          shell: Some("zsh".into()),
           timestamp_ns: plain_timestamp_ns,
           ..Default::default()
         },
@@ -169,6 +159,10 @@ fn nanoseconds(value: &str, field: &str, line: usize) -> Result<i64> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  fn parse(contents: &str) -> Result<Vec<(Uuid, Execution)>> {
+    records(Zsh::FORMAT, parse_history(contents.as_bytes())?)
+  }
 
   #[test]
   fn commands_beginning_with_colon() {
@@ -233,6 +227,14 @@ mod tests {
           ..Default::default()
         },
       )],
+    );
+  }
+
+  #[test]
+  fn invalid_utf8() {
+    assert_eq!(
+      parse_history(&[0xFF]).unwrap_err().to_string(),
+      "Zsh history is not valid UTF-8",
     );
   }
 

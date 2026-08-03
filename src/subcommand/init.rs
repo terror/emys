@@ -1,5 +1,10 @@
 use super::*;
 
+#[derive(Clone, Debug, ValueEnum)]
+enum Shell {
+  Zsh,
+}
+
 #[derive(Debug, Parser)]
 pub(crate) struct Init {
   shell: Shell,
