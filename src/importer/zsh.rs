@@ -163,12 +163,19 @@ fn nanoseconds(value: &str, field: &str, line: usize) -> Result<i64> {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+  use {super::*, indoc::indoc};
 
   #[test]
   fn commands_beginning_with_colon() {
     assert_eq!(
-      Zsh::parse(b": foo\n: 1:x;bar\n: 1:2bar;baz").unwrap(),
+      Zsh::parse(indoc! {
+        b"
+        : foo
+        : 1:x;bar
+        : 1:2bar;baz
+        "
+      })
+      .unwrap(),
       vec![
         ImportedExecution {
           execution: Execution {
@@ -246,7 +253,14 @@ mod tests {
   #[test]
   fn mixed_history() {
     assert_eq!(
-      Zsh::parse(b"foo\n: 2:3;bar\nbaz").unwrap(),
+      Zsh::parse(indoc! {
+        b"
+        foo
+        : 2:3;bar
+        baz
+        "
+      })
+      .unwrap(),
       vec![
         ImportedExecution {
           execution: Execution {
@@ -287,7 +301,15 @@ mod tests {
   #[test]
   fn multiline_entries() {
     assert_eq!(
-      Zsh::parse(b"foo \\\nbar\n: 1:2;baz \\\nqux\n").unwrap(),
+      Zsh::parse(indoc! {
+        b"
+        foo \x5C
+        bar
+        : 1:2;baz \x5C
+        qux
+        "
+      })
+      .unwrap(),
       vec![
         ImportedExecution {
           execution: Execution {
@@ -318,7 +340,13 @@ mod tests {
 
   #[test]
   fn parsing_is_deterministic() {
-    let contents = b"foo\n: 1:2;bar\nfoo";
+    let contents = indoc! {
+      b"
+      foo
+      : 1:2;bar
+      foo
+      "
+    };
 
     assert_eq!(Zsh::parse(contents).unwrap(), Zsh::parse(contents).unwrap());
   }
@@ -326,7 +354,11 @@ mod tests {
   #[test]
   fn plain_history() {
     assert_eq!(
-      Zsh::parse(b"foo\nbar").unwrap(),
+      Zsh::parse(indoc! {b"
+          foo
+          bar
+        "})
+      .unwrap(),
       vec![
         ImportedExecution {
           execution: Execution {
@@ -352,10 +384,16 @@ mod tests {
 
   #[test]
   fn repeated_commands() {
-    let records = Zsh::parse(b"foo\nfoo\n: 1:2;foo\n: 1:2;foo").unwrap();
-
     assert_eq!(
-      records,
+      Zsh::parse(indoc! {
+        b"
+        foo
+        foo
+        : 1:2;foo
+        : 1:2;foo
+        "
+      })
+      .unwrap(),
       vec![
         ImportedExecution {
           execution: Execution {
