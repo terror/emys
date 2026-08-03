@@ -59,5 +59,24 @@ _emys_precmd() {
   return "$exit_code"
 }
 
+_emys_search() {
+  emulate -L zsh
+
+  local selected
+  selected="$(command emys search --interactive -- "$BUFFER")"
+  local status="$?"
+
+  if (( status == 0 )) && [[ -n "$selected" ]]; then
+    BUFFER="$selected"
+    CURSOR="${#BUFFER}"
+  fi
+
+  zle redisplay
+
+  return "$status"
+}
+
 add-zsh-hook preexec _emys_preexec
 add-zsh-hook precmd _emys_precmd
+zle -N emys-search _emys_search
+bindkey '^R' emys-search
