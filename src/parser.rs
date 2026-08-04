@@ -1,7 +1,9 @@
 use super::*;
 
+mod bash;
 mod zsh;
 
+pub(super) use bash::Bash;
 pub(super) use zsh::Zsh;
 
 pub(super) trait Parser: Default {

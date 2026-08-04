@@ -248,6 +248,108 @@ fn backup() -> Result {
 }
 
 #[test]
+fn bash_records_execution() -> Result {
+  let test = Test::new()?;
+
+  test
+    .command()
+    .arguments(["init", "bash"])
+    .expected_stdout(
+      &include_str!("../src/shell/bash/init.bash").replace('\\', "/"),
+    )
+    .run()?;
+
+  let script = include_str!("../src/shell/bash/init.bash");
+
+  let path = env::join_paths(
+    once(
+      executable_path(env!("CARGO_PKG_NAME"))
+        .parent()
+        .unwrap()
+        .to_path_buf(),
+    )
+    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+  )?;
+
+  let mut bash = match Command::new("bash")
+    .args(["--noprofile", "--norc"])
+    .env("PATH", path)
+    .env("XDG_DATA_HOME", test.tempdir.path())
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+  {
+    Ok(bash) => bash,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => panic!("failed to run bash: {error}"),
+  };
+
+  bash.stdin.take().unwrap().write_all(
+    formatdoc! {
+      "
+        {script}
+        _honu_preexec 'foo'
+        false
+        _honu_precmd
+        "
+    }
+    .as_bytes(),
+  )?;
+
+  let output = bash.wait_with_output()?;
+
+  assert_eq!(
+    (
+      output.status.code(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
+    ),
+    (Some(1), String::new(), String::new()),
+  );
+
+  assert_eq!(
+    test.database()?.query_row(
+      "SELECT
+        COUNT(*),
+        command,
+        exit_code,
+        directory,
+        session <> '',
+        shell,
+        timestamp_ns > 0,
+        duration_ns IS NULL OR duration_ns >= 0
+      FROM executions",
+      [],
+      |row| {
+        Ok((
+          row.get::<_, i64>(0)?,
+          row.get::<_, String>(1)?,
+          row.get::<_, i32>(2)?,
+          row.get::<_, String>(3)?,
+          row.get::<_, bool>(4)?,
+          row.get::<_, String>(5)?,
+          row.get::<_, bool>(6)?,
+          row.get::<_, bool>(7)?,
+        ))
+      },
+    )?,
+    (
+      1,
+      "foo".into(),
+      1,
+      env::current_dir()?.to_string_lossy().replace('\\', "/"),
+      true,
+      "bash".into(),
+      true,
+      true,
+    ),
+  );
+
+  Ok(())
+}
+
+#[test]
 fn clear() -> Result {
   let test = Test::new()?;
 
@@ -271,6 +373,59 @@ fn clear() -> Result {
       |row| { row.get::<_, i64>(0) }
     )?,
     0,
+  );
+
+  Ok(())
+}
+
+#[test]
+fn import_bash() -> Result {
+  let test = Test::new()?;
+
+  let history = test.path("history");
+
+  fs::write(
+    &history,
+    "#1700000000\nfor foo in bar; do\n  echo \"$foo\"\ndone\n#1700000001\ncargo test\n",
+  )?;
+
+  test
+    .command()
+    .environment("HISTFILE", &history)
+    .arguments(["import", "bash"])
+    .expected_stdout("imported 2 executions from [ROOT]/history\n")
+    .run()?;
+
+  let rows = test
+    .database()?
+    .prepare(
+      "SELECT command, timestamp_ns, shell
+       FROM executions
+       ORDER BY timestamp_ns",
+    )?
+    .query_map([], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, i64>(1)?,
+        row.get::<_, String>(2)?,
+      ))
+    })?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
+
+  assert_eq!(
+    rows,
+    [
+      (
+        "for foo in bar; do\n  echo \"$foo\"\ndone".into(),
+        1_700_000_000_000_000_000,
+        "bash".into(),
+      ),
+      (
+        "cargo test".into(),
+        1_700_000_001_000_000_000,
+        "bash".into(),
+      ),
+    ],
   );
 
   Ok(())
@@ -365,6 +520,48 @@ fn import_zsh_histfile() -> Result {
       |row| { row.get::<_, i64>(0) }
     )?,
     1,
+  );
+
+  Ok(())
+}
+
+#[test]
+fn init_bash() -> Result {
+  let test = Test::new()?;
+
+  test
+    .command()
+    .arguments(["init", "bash"])
+    .expected_stdout(
+      &include_str!("../src/shell/bash/init.bash").replace('\\', "/"),
+    )
+    .run()?;
+
+  let script = include_str!("../src/shell/bash/init.bash");
+
+  let mut bash = match Command::new("bash")
+    .arg("-n")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+  {
+    Ok(bash) => bash,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => panic!("failed to run bash: {error}"),
+  };
+
+  bash.stdin.take().unwrap().write_all(script.as_bytes())?;
+
+  let output = bash.wait_with_output()?;
+
+  assert_eq!(
+    (
+      output.status.success(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
+    ),
+    (true, String::new(), String::new()),
   );
 
   Ok(())

@@ -5,7 +5,7 @@ use {
   database::Database,
   execution::Execution,
   imara_diff::{Algorithm, Diff, InternedInput},
-  importer::{Importer, Zsh},
+  importer::{Bash, Importer, Zsh},
   indicatif::{ProgressBar, ProgressStyle},
   line::Line,
   lines::Lines,

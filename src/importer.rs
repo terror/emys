@@ -1,7 +1,9 @@
 use super::*;
 
+mod bash;
 mod zsh;
 
+pub(crate) use bash::Bash;
 pub(crate) use zsh::Zsh;
 
 pub(super) trait Importer {
