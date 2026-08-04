@@ -23,8 +23,17 @@ use {
 
 #[cfg(unix)]
 use {
-  skim::{Skim, options::SkimOptionsBuilder},
-  std::os::unix::fs::{OpenOptionsExt, PermissionsExt},
+  skim::{
+    Skim, SkimItem, SkimItemSender, options::SkimOptionsBuilder,
+    prelude::bounded,
+  },
+  std::{
+    collections::HashSet,
+    mem,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    sync::Arc,
+    thread,
+  },
   xdg::BaseDirectories,
 };
 

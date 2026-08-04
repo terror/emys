@@ -5,7 +5,10 @@ pub(crate) struct Database {
 }
 
 impl Database {
-  const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
+  const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_initial.sql"),
+    include_str!("../migrations/0002_execution_timestamp_id.sql"),
+  ];
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
 
   pub(crate) fn backup(&self, path: &Path, force: bool) -> Result {
@@ -77,6 +80,41 @@ impl Database {
   #[cfg(test)]
   pub(crate) fn connection(&self) -> &Connection {
     &self.connection
+  }
+
+  #[cfg(unix)]
+  pub(crate) fn for_each_command(
+    &self,
+    mut callback: impl FnMut(String) -> bool,
+  ) -> Result {
+    let mut statement = self.connection.prepare(
+      "SELECT command
+       FROM executions
+       ORDER BY timestamp_ns DESC, id DESC",
+    )?;
+
+    let mut commands = HashSet::new();
+    let mut rows = statement.query([])?;
+
+    while let Some(row) = rows.next()? {
+      let command = row.get::<_, String>(0)?;
+
+      if commands.insert(command.clone()) && !callback(command) {
+        break;
+      }
+    }
+
+    Ok(())
+  }
+
+  #[cfg(unix)]
+  pub(crate) fn has_executions(&self) -> Result<bool> {
+    self
+      .connection
+      .query_row("SELECT EXISTS(SELECT 1 FROM executions)", [], |row| {
+        row.get(0)
+      })
+      .map_err(Into::into)
   }
 
   pub(crate) fn import(&self, records: &[(Uuid, Execution)]) -> Result<usize> {
@@ -512,6 +550,43 @@ mod tests {
     assert_eq!(database.recent(20).unwrap().len(), 1);
   }
 
+  #[cfg(unix)]
+  #[test]
+  fn for_each_command_visits_every_unique_command_in_recent_order() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    for (command, timestamp_ns) in [("foo", 1), ("bar", 2), ("foo", 3)] {
+      database
+        .insert(&Execution {
+          command: command.into(),
+          timestamp_ns,
+          ..Default::default()
+        })
+        .unwrap();
+    }
+
+    let mut commands = Vec::new();
+
+    database
+      .for_each_command(|command| {
+        commands.push(command);
+        true
+      })
+      .unwrap();
+
+    assert_eq!(commands, ["foo", "bar"]);
+
+    database
+      .for_each_command(|command| {
+        commands.push(command);
+        false
+      })
+      .unwrap();
+
+    assert_eq!(commands, ["foo", "bar", "foo"]);
+  }
+
   #[test]
   fn import_inserts_and_is_idempotent() {
     let database =
@@ -917,7 +992,7 @@ mod tests {
   fn unsupported_schema_is_rejected() {
     let connection = Connection::open_in_memory().unwrap();
 
-    connection.execute_batch("PRAGMA user_version = 2").unwrap();
+    connection.execute_batch("PRAGMA user_version = 3").unwrap();
 
     let Err(error) = Database::try_from(connection) else {
       panic!("expected unsupported schema to fail")
@@ -925,7 +1000,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "database schema version 2 is unsupported; expected 1",
+      "database schema version 3 is unsupported; expected 2",
     );
   }
 }

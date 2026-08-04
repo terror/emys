@@ -11,7 +11,37 @@ pub(crate) struct Search {
 }
 
 impl Search {
-  pub(crate) fn run(self, database: &Database) -> Result {
+  #[cfg(unix)]
+  fn load(database: &Database, sender: &SkimItemSender) -> Result {
+    const BATCH_SIZE: usize = 256;
+
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+    let mut batch_size = 1;
+
+    database.for_each_command(|command| {
+      batch.push(Arc::new(command) as Arc<dyn SkimItem>);
+
+      if batch.len() < batch_size {
+        return true;
+      }
+
+      let sent = sender
+        .send(mem::replace(&mut batch, Vec::with_capacity(BATCH_SIZE)))
+        .is_ok();
+
+      batch_size = BATCH_SIZE;
+
+      sent
+    })?;
+
+    if !batch.is_empty() {
+      let _ = sender.send(batch);
+    }
+
+    Ok(())
+  }
+
+  pub(crate) fn run(self, database: Database) -> Result {
     if self.interactive {
       return self.run_interactive(database);
     }
@@ -32,15 +62,13 @@ impl Search {
   }
 
   #[cfg(not(unix))]
-  fn run_interactive(&self, _database: &Database) -> Result {
+  fn run_interactive(&self, _database: Database) -> Result {
     bail!("interactive search is unsupported on this platform")
   }
 
   #[cfg(unix)]
-  fn run_interactive(&self, database: &Database) -> Result {
-    let executions = database.search("", 10_000)?;
-
-    if executions.is_empty() {
+  fn run_interactive(&self, database: Database) -> Result {
+    if !database.has_executions()? {
       return Ok(());
     }
 
@@ -50,13 +78,17 @@ impl Search {
       .query(&self.query)
       .build()?;
 
-    let output = Skim::run_items(
-      options,
-      executions
-        .into_iter()
-        .map(|(_, execution)| execution.command),
-    )
-    .map_err(|error| Error::msg(error.to_string()))?;
+    let (sender, receiver) = bounded(8);
+
+    let loader = thread::spawn(move || Self::load(&database, &sender));
+
+    let output = Skim::run_with(options, Some(receiver));
+
+    loader
+      .join()
+      .map_err(|_| Error::msg("interactive search loader panicked"))??;
+
+    let output = output.map_err(|error| Error::msg(error.to_string()))?;
 
     if !output.is_abort
       && let Some(item) = output.selected_items.first()
