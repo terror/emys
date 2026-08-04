@@ -9,6 +9,7 @@ impl Database {
     include_str!("../migrations/0001_initial.sql"),
     include_str!("../migrations/0002_execution_timestamp_id.sql"),
     include_str!("../migrations/0003_import_sources.sql"),
+    include_str!("../migrations/0004_commands.sql"),
   ];
 
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
@@ -77,6 +78,7 @@ impl Database {
   pub(crate) fn clear(&self) -> Result {
     let transaction = self.connection.unchecked_transaction()?;
 
+    transaction.execute("DELETE FROM commands", [])?;
     transaction.execute("DELETE FROM import_sources", [])?;
     transaction.execute("DELETE FROM executions", [])?;
 
@@ -97,18 +99,16 @@ impl Database {
   ) -> Result {
     let mut statement = self.connection.prepare(
       "SELECT command
-       FROM executions
-       ORDER BY timestamp_ns DESC, id DESC",
+       FROM commands
+       ORDER BY timestamp_ns DESC, execution_id DESC",
     )?;
-
-    let mut commands = HashSet::new();
 
     let mut rows = statement.query([])?;
 
     while let Some(row) = rows.next()? {
       let command = row.get::<_, String>(0)?;
 
-      if commands.insert(command.clone()) && !callback(command) {
+      if !callback(command) {
         break;
       }
     }
@@ -265,6 +265,16 @@ impl Database {
       }
     }
 
+    transaction.execute("DELETE FROM commands", [])?;
+
+    transaction.execute(
+      "INSERT OR IGNORE INTO commands (command, timestamp_ns, execution_id)
+       SELECT command, timestamp_ns, id
+       FROM executions
+       ORDER BY timestamp_ns DESC, id DESC",
+      [],
+    )?;
+
     transaction.commit()?;
 
     Ok(inserted)
@@ -275,7 +285,12 @@ impl Database {
 
     let directory = execution.directory()?;
 
-    self.connection.execute(
+    let transaction = Transaction::new_unchecked(
+      &self.connection,
+      TransactionBehavior::Immediate,
+    )?;
+
+    transaction.execute(
       "INSERT INTO executions (
         id,
         command,
@@ -299,6 +314,22 @@ impl Database {
         execution.shell,
       ],
     )?;
+
+    transaction.execute(
+      "INSERT INTO commands (command, timestamp_ns, execution_id)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT (command) DO UPDATE SET
+         timestamp_ns = excluded.timestamp_ns,
+         execution_id = excluded.execution_id
+       WHERE excluded.timestamp_ns > commands.timestamp_ns
+         OR (
+           excluded.timestamp_ns = commands.timestamp_ns
+           AND excluded.execution_id > commands.execution_id
+         )",
+      params![execution.command, execution.timestamp_ns, id.to_string()],
+    )?;
+
+    transaction.commit()?;
 
     Ok(id)
   }
@@ -748,8 +779,14 @@ mod tests {
             row.get::<_, i64>(0)
           })
           .unwrap(),
+        database
+          .connection()
+          .query_row("SELECT COUNT(*) FROM commands", [], |row| {
+            row.get::<_, i64>(0)
+          })
+          .unwrap(),
       ),
-      (Vec::new(), 0),
+      (Vec::new(), 0, 0),
     );
 
     database
@@ -916,6 +953,52 @@ mod tests {
       ),
       (vec![second.clone(), first], vec![second]),
     );
+  }
+
+  #[test]
+  fn import_refreshes_command_recency() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    for records in [
+      [("foo", 3, b"foo".as_slice()), ("bar", 2, b"bar".as_slice())],
+      [("foo", 1, b"foo".as_slice()), ("bar", 2, b"bar".as_slice())],
+    ] {
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          records.map(|(command, timestamp_ns, fingerprint)| {
+            Ok(Record {
+              execution: Execution {
+                command: command.into(),
+                timestamp_ns,
+                ..Default::default()
+              },
+              fingerprint: fingerprint.to_vec(),
+            })
+          }),
+          |_| {},
+        )
+        .unwrap();
+    }
+
+    let commands = database
+      .connection()
+      .prepare(
+        "SELECT command, timestamp_ns
+         FROM commands
+         ORDER BY timestamp_ns DESC, execution_id DESC",
+      )
+      .unwrap()
+      .query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+      })
+      .unwrap()
+      .collect::<rusqlite::Result<Vec<_>>>()
+      .unwrap();
+
+    assert_eq!(commands, [("bar".into(), 2), ("foo".into(), 1)]);
   }
 
   #[test]
@@ -1284,6 +1367,19 @@ mod tests {
     let connection = Connection::open_in_memory().unwrap();
 
     connection.execute_batch(Database::MIGRATIONS[0]).unwrap();
+
+    for (id, command, timestamp_ns) in
+      [("foo", "foo", 1), ("bar", "bar", 2), ("baz", "foo", 3)]
+    {
+      connection
+        .execute(
+          "INSERT INTO executions (id, command, timestamp_ns)
+           VALUES (?1, ?2, ?3)",
+          params![id, command, timestamp_ns],
+        )
+        .unwrap();
+    }
+
     connection.pragma_update(None, "user_version", 1).unwrap();
 
     let database = Database::try_from(connection).unwrap();
@@ -1297,6 +1393,25 @@ mod tests {
       .collect::<rusqlite::Result<Vec<_>>>()
       .unwrap();
 
+    let commands = database
+      .connection()
+      .prepare(
+        "SELECT command, timestamp_ns, execution_id
+         FROM commands
+         ORDER BY timestamp_ns DESC, execution_id DESC",
+      )
+      .unwrap()
+      .query_map([], |row| {
+        Ok((
+          row.get::<_, String>(0)?,
+          row.get::<_, i64>(1)?,
+          row.get::<_, String>(2)?,
+        ))
+      })
+      .unwrap()
+      .collect::<rusqlite::Result<Vec<_>>>()
+      .unwrap();
+
     assert_eq!(
       (
         database
@@ -1304,8 +1419,16 @@ mod tests {
           .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
           .unwrap(),
         columns,
+        commands,
       ),
-      (3, vec!["timestamp_ns".into(), "id".into()]),
+      (
+        4,
+        vec!["timestamp_ns".into(), "id".into()],
+        vec![
+          ("foo".into(), 3, "baz".into()),
+          ("bar".into(), 2, "bar".into())
+        ],
+      ),
     );
   }
 
@@ -1521,7 +1644,7 @@ mod tests {
   fn unsupported_schema_is_rejected() {
     let connection = Connection::open_in_memory().unwrap();
 
-    connection.execute_batch("PRAGMA user_version = 4").unwrap();
+    connection.execute_batch("PRAGMA user_version = 5").unwrap();
 
     let Err(error) = Database::try_from(connection) else {
       panic!("expected unsupported schema to fail")
@@ -1529,7 +1652,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "database schema version 4 is unsupported; expected 3",
+      "database schema version 5 is unsupported; expected 4",
     );
   }
 }
