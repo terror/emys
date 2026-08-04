@@ -71,6 +71,8 @@ impl Database {
   }
 
   pub(crate) fn clear(&self) -> Result {
+    self.connection.pragma_update(None, "secure_delete", true)?;
+
     let transaction = self.connection.unchecked_transaction()?;
 
     transaction.execute("DELETE FROM commands", [])?;
@@ -78,6 +80,18 @@ impl Database {
     transaction.execute("DELETE FROM executions", [])?;
 
     transaction.commit()?;
+
+    self.connection.execute_batch("VACUUM")?;
+
+    let busy = self.connection.query_row(
+      "PRAGMA wal_checkpoint(TRUNCATE)",
+      [],
+      |row| row.get::<_, bool>(0),
+    )?;
+
+    if busy {
+      bail!("failed to truncate database write-ahead log because it is busy");
+    }
 
     Ok(())
   }
@@ -749,9 +763,105 @@ mod tests {
   }
 
   #[test]
-  fn clear_deletes_all_executions() {
+  fn clear_deletes_all_records() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    database
+      .import(
+        "foo",
+        Path::new("bar"),
+        [Ok(Record {
+          execution: Execution {
+            command: "foo".into(),
+            ..Default::default()
+          },
+          fingerprint: b"bar".to_vec(),
+        })],
+        |_| {},
+      )
+      .unwrap();
+
+    database.clear().unwrap();
+
+    assert_eq!(
+      database
+        .connection()
+        .query_row(
+          "SELECT
+            (SELECT COUNT(*) FROM commands),
+            (SELECT COUNT(*) FROM executions),
+            (SELECT COUNT(*) FROM import_sources),
+            (SELECT COUNT(*) FROM source_records)",
+          [],
+          |row| {
+            Ok((
+              row.get::<_, i64>(0)?,
+              row.get::<_, i64>(1)?,
+              row.get::<_, i64>(2)?,
+              row.get::<_, i64>(3)?,
+            ))
+          },
+        )
+        .unwrap(),
+      (0, 0, 0, 0),
+    );
+  }
+
+  #[test]
+  fn clear_purges_database_and_wal() {
+    let root = tempfile::tempdir().unwrap();
+
+    let path = root.path().join("foo.db");
+    let wal = root.path().join("foo.db-wal");
+
+    let database = Database::open(&path).unwrap();
+
+    let pragma = |name| {
+      database
+        .connection()
+        .pragma_query_value(None, name, |row| row.get::<_, i64>(0))
+        .unwrap()
+    };
+
+    database
+      .connection()
+      .execute_batch(
+        "PRAGMA secure_delete = OFF;
+         CREATE TABLE foo (bar BLOB);
+         INSERT INTO foo VALUES (ZEROBLOB(65536));
+         DROP TABLE foo;",
+      )
+      .unwrap();
+
+    assert_eq!(
+      (
+        pragma("secure_delete"),
+        pragma("freelist_count") > 0,
+        wal.metadata().unwrap().len() > 0,
+      ),
+      (0, true, true),
+    );
+
+    database.clear().unwrap();
+
+    assert_eq!(
+      (
+        pragma("secure_delete"),
+        pragma("freelist_count"),
+        wal.metadata().unwrap().len(),
+      ),
+      (1, 0, 0),
+    );
+  }
+
+  #[test]
+  fn clear_reports_busy_wal() {
+    let root = tempfile::tempdir().unwrap();
+
+    let path = root.path().join("foo.db");
+
+    let database = Database::open(&path).unwrap();
 
     database
       .insert(&Execution {
@@ -760,43 +870,25 @@ mod tests {
       })
       .unwrap();
 
-    database
-      .connection()
-      .execute(
-        "INSERT INTO import_sources (id, format, path) VALUES (?1, ?2, ?3)",
-        params![Uuid::new_v4().to_string(), "foo", b"bar"],
-      )
-      .unwrap();
+    let reader = Connection::open(path).unwrap();
 
-    database.clear().unwrap();
+    reader.execute_batch("BEGIN").unwrap();
 
     assert_eq!(
-      (
-        database.recent(20).unwrap(),
-        database
-          .connection()
-          .query_row("SELECT COUNT(*) FROM import_sources", [], |row| {
-            row.get::<_, i64>(0)
-          })
-          .unwrap(),
-        database
-          .connection()
-          .query_row("SELECT COUNT(*) FROM commands", [], |row| {
-            row.get::<_, i64>(0)
-          })
-          .unwrap(),
-      ),
-      (Vec::new(), 0, 0),
+      reader
+        .query_row("SELECT command FROM executions", [], |row| {
+          row.get::<_, String>(0)
+        })
+        .unwrap(),
+      "foo",
     );
 
-    database
-      .insert(&Execution {
-        command: "bar".into(),
-        ..Default::default()
-      })
-      .unwrap();
+    database.connection().busy_timeout(Duration::ZERO).unwrap();
 
-    assert_eq!(database.recent(20).unwrap().len(), 1);
+    assert_eq!(
+      database.clear().unwrap_err().to_string(),
+      "failed to truncate database write-ahead log because it is busy",
+    );
   }
 
   #[cfg(unix)]
@@ -965,52 +1057,6 @@ mod tests {
   }
 
   #[test]
-  fn import_refreshes_command_recency() {
-    let database =
-      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
-
-    for records in [
-      [("foo", 3, b"foo".as_slice()), ("bar", 2, b"bar".as_slice())],
-      [("foo", 1, b"foo".as_slice()), ("bar", 2, b"bar".as_slice())],
-    ] {
-      database
-        .import(
-          "test",
-          Path::new("foo"),
-          records.map(|(command, timestamp_ns, fingerprint)| {
-            Ok(Record {
-              execution: Execution {
-                command: command.into(),
-                timestamp_ns,
-                ..Default::default()
-              },
-              fingerprint: fingerprint.to_vec(),
-            })
-          }),
-          |_| {},
-        )
-        .unwrap();
-    }
-
-    let commands = database
-      .connection()
-      .prepare(
-        "SELECT command, timestamp_ns
-         FROM commands
-         ORDER BY timestamp_ns DESC, execution_id DESC",
-      )
-      .unwrap()
-      .query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-      })
-      .unwrap()
-      .collect::<rusqlite::Result<Vec<_>>>()
-      .unwrap();
-
-    assert_eq!(commands, [("bar".into(), 2), ("foo".into(), 1)]);
-  }
-
-  #[test]
   fn import_reconciles_ordered_source_snapshots() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
@@ -1104,6 +1150,52 @@ mod tests {
       ),
       (original["foo"].0, original["bar"].0, 2, 3),
     );
+  }
+
+  #[test]
+  fn import_refreshes_command_recency() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    for records in [
+      [("foo", 3, b"foo".as_slice()), ("bar", 2, b"bar".as_slice())],
+      [("foo", 1, b"foo".as_slice()), ("bar", 2, b"bar".as_slice())],
+    ] {
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          records.map(|(command, timestamp_ns, fingerprint)| {
+            Ok(Record {
+              execution: Execution {
+                command: command.into(),
+                timestamp_ns,
+                ..Default::default()
+              },
+              fingerprint: fingerprint.to_vec(),
+            })
+          }),
+          |_| {},
+        )
+        .unwrap();
+    }
+
+    let commands = database
+      .connection()
+      .prepare(
+        "SELECT command, timestamp_ns
+         FROM commands
+         ORDER BY timestamp_ns DESC, execution_id DESC",
+      )
+      .unwrap()
+      .query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+      })
+      .unwrap()
+      .collect::<rusqlite::Result<Vec<_>>>()
+      .unwrap();
+
+    assert_eq!(commands, [("bar".into(), 2), ("foo".into(), 1)]);
   }
 
   #[test]

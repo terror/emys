@@ -118,6 +118,22 @@ mod tests {
   use {super::*, indoc::indoc};
 
   #[test]
+  fn empty_input_and_entries_are_ignored() {
+    #[track_caller]
+    fn case(history: &[u8]) {
+      assert_eq!(
+        Bash::records(history).collect::<Result<Vec<_>>>().unwrap(),
+        Vec::new(),
+      );
+    }
+
+    case(b"");
+    case(b"\n");
+    case(b"#1");
+    case(b"#1\n#2");
+  }
+
+  #[test]
   fn history() {
     assert_eq!(
       Bash::records(
@@ -174,6 +190,18 @@ mod tests {
   }
 
   #[test]
+  fn invalid_utf8_is_lossy() {
+    assert_eq!(
+      Bash::records(&[0xFF][..])
+        .collect::<Result<Vec<_>>>()
+        .unwrap()[0]
+        .execution
+        .command,
+      "\u{FFFD}",
+    );
+  }
+
+  #[test]
   fn non_timestamps_are_commands() {
     assert_eq!(
       Bash::records(&b"#\n#foo"[..])
@@ -202,37 +230,9 @@ mod tests {
   }
 
   #[test]
-  fn empty_input_and_entries_are_ignored() {
-    #[track_caller]
-    fn case(history: &[u8]) {
-      assert_eq!(
-        Bash::records(history).collect::<Result<Vec<_>>>().unwrap(),
-        Vec::new(),
-      );
-    }
-
-    case(b"");
-    case(b"\n");
-    case(b"#1");
-    case(b"#1\n#2");
-  }
-
-  #[test]
-  fn invalid_utf8_is_lossy() {
+  fn timestamp_integer_overflow() {
     assert_eq!(
-      Bash::records(&[0xFF][..])
-        .collect::<Result<Vec<_>>>()
-        .unwrap()[0]
-        .execution
-        .command,
-      "\u{FFFD}",
-    );
-  }
-
-  #[test]
-  fn timestamp_overflow() {
-    assert_eq!(
-      Bash::records(&b"#9223372037\nfoo"[..])
+      Bash::records(&b"#18446744073709551616\nfoo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
@@ -241,9 +241,9 @@ mod tests {
   }
 
   #[test]
-  fn timestamp_integer_overflow() {
+  fn timestamp_overflow() {
     assert_eq!(
-      Bash::records(&b"#18446744073709551616\nfoo"[..])
+      Bash::records(&b"#9223372037\nfoo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
