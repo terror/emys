@@ -248,6 +248,35 @@ fn backup() -> Result {
 }
 
 #[test]
+fn clear() -> Result {
+  let test = Test::new()?;
+
+  let history = test.path("history");
+
+  fs::write(&history, "foo\n")?;
+
+  test
+    .command()
+    .arguments(["import", "zsh"])
+    .argument(&history)
+    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .run()?;
+
+  test.command().argument("clear").run()?;
+
+  assert_eq!(
+    test.database()?.query_row(
+      "SELECT COUNT(*) FROM executions",
+      [],
+      |row| { row.get::<_, i64>(0) }
+    )?,
+    0,
+  );
+
+  Ok(())
+}
+
+#[test]
 fn import_zsh() -> Result {
   let test = Test::new()?;
 

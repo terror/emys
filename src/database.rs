@@ -68,6 +68,12 @@ impl Database {
     result
   }
 
+  pub(crate) fn clear(&self) -> Result {
+    self.connection.execute("DELETE FROM executions", [])?;
+
+    Ok(())
+  }
+
   #[cfg(test)]
   pub(crate) fn connection(&self) -> &Connection {
     &self.connection
@@ -481,6 +487,32 @@ mod tests {
   }
 
   #[test]
+  fn clear_deletes_all_executions() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    database
+      .insert(&Execution {
+        command: "foo".into(),
+        ..Default::default()
+      })
+      .unwrap();
+
+    database.clear().unwrap();
+
+    assert_eq!(database.recent(20).unwrap(), Vec::new());
+
+    database
+      .insert(&Execution {
+        command: "bar".into(),
+        ..Default::default()
+      })
+      .unwrap();
+
+    assert_eq!(database.recent(20).unwrap().len(), 1);
+  }
+
+  #[test]
   fn import_inserts_and_is_idempotent() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
@@ -674,49 +706,6 @@ mod tests {
   }
 
   #[test]
-  fn try_from_path_creates_private_database() {
-    let root = tempfile::tempdir().unwrap();
-
-    let path = root.path().join("foo/history.db");
-
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-
-    let database = Database::try_from(path.as_path()).unwrap();
-
-    assert_eq!(
-      (
-        path.is_file(),
-        database
-          .connection()
-          .pragma_query_value(None, "journal_mode", |row| {
-            row.get::<_, String>(0)
-          })
-          .unwrap(),
-        database
-          .connection()
-          .pragma_query_value(None, "busy_timeout", |row| {
-            row.get::<_, i64>(0)
-          })
-          .unwrap(),
-      ),
-      (true, "wal".into(), 5000),
-    );
-
-    #[cfg(unix)]
-    assert_eq!(
-      (
-        fs::metadata(path.parent().unwrap())
-          .unwrap()
-          .permissions()
-          .mode()
-          & 0o777,
-        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-      ),
-      (0o700, 0o600),
-    );
-  }
-
-  #[test]
   fn recent_orders_and_limits_executions() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
@@ -878,6 +867,49 @@ mod tests {
     assert_eq!(
       error.to_string(),
       "execution limit exceeds SQLite integer range",
+    );
+  }
+
+  #[test]
+  fn try_from_path_creates_private_database() {
+    let root = tempfile::tempdir().unwrap();
+
+    let path = root.path().join("foo/history.db");
+
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+    let database = Database::try_from(path.as_path()).unwrap();
+
+    assert_eq!(
+      (
+        path.is_file(),
+        database
+          .connection()
+          .pragma_query_value(None, "journal_mode", |row| {
+            row.get::<_, String>(0)
+          })
+          .unwrap(),
+        database
+          .connection()
+          .pragma_query_value(None, "busy_timeout", |row| {
+            row.get::<_, i64>(0)
+          })
+          .unwrap(),
+      ),
+      (true, "wal".into(), 5000),
+    );
+
+    #[cfg(unix)]
+    assert_eq!(
+      (
+        fs::metadata(path.parent().unwrap())
+          .unwrap()
+          .permissions()
+          .mode()
+          & 0o777,
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+      ),
+      (0o700, 0o600),
     );
   }
 
