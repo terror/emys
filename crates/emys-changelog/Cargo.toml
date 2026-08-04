@@ -1,0 +1,11 @@
+[package]
+name = "emys-changelog"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+regex = "1.13.1"
