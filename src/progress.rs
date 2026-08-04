@@ -3,25 +3,6 @@ use super::*;
 const SPINNER_STYLE: &str = "{spinner:.green} ⟪{elapsed_precise}⟫ \
   {binary_bytes} ⟨{binary_bytes_per_sec}⟩ {msg}";
 
-const TICK_CHARS: &str = concat!(
-  "⠀⠁⠂⠃⠄⠅⠆⠇⡀⡁⡂⡃⡄⡅⡆⡇",
-  "⠈⠉⠊⠋⠌⠍⠎⠏⡈⡉⡊⡋⡌⡍⡎⡏",
-  "⠐⠑⠒⠓⠔⠕⠖⠗⡐⡑⡒⡓⡔⡕⡖⡗",
-  "⠘⠙⠚⠛⠜⠝⠞⠟⡘⡙⡚⡛⡜⡝⡞⡟",
-  "⠠⠡⠢⠣⠤⠥⠦⠧⡠⡡⡢⡣⡤⡥⡦⡧",
-  "⠨⠩⠪⠫⠬⠭⠮⠯⡨⡩⡪⡫⡬⡭⡮⡯",
-  "⠰⠱⠲⠳⠴⠵⠶⠷⡰⡱⡲⡳⡴⡵⡶⡷",
-  "⠸⠹⠺⠻⠼⠽⠾⠿⡸⡹⡺⡻⡼⡽⡾⡿",
-  "⢀⢁⢂⢃⢄⢅⢆⢇⣀⣁⣂⣃⣄⣅⣆⣇",
-  "⢈⢉⢊⢋⢌⢍⢎⢏⣈⣉⣊⣋⣌⣍⣎⣏",
-  "⢐⢑⢒⢓⢔⢕⢖⢗⣐⣑⣒⣓⣔⣕⣖⣗",
-  "⢘⢙⢚⢛⢜⢝⢞⢟⣘⣙⣚⣛⣜⣝⣞⣟",
-  "⢠⢡⢢⢣⢤⢥⢦⢧⣠⣡⣢⣣⣤⣥⣦⣧",
-  "⢨⢩⢪⢫⢬⢭⢮⢯⣨⣩⣪⣫⣬⣭⣮⣯",
-  "⢰⢱⢲⢳⢴⢵⢶⢷⣰⣱⣲⣳⣴⣵⣶⣷",
-  "⢸⢹⢺⢻⢼⢽⢾⢿⣸⣹⣺⣻⣼⣽⣾⣿",
-);
-
 pub(super) struct Progress {
   bar: Option<ProgressBar>,
   name: &'static str,
@@ -39,9 +20,7 @@ impl Progress {
   pub(super) fn new(name: &'static str) -> Result<Self> {
     let bar = if io::stderr().is_terminal() {
       let bar = ProgressBar::new_spinner()
-        .with_style(
-          ProgressStyle::with_template(SPINNER_STYLE)?.tick_chars(TICK_CHARS),
-        )
+        .with_style(ProgressStyle::with_template(SPINNER_STYLE)?)
         .with_message(format!("{name}: parsing"));
 
       bar.enable_steady_tick(Duration::from_millis(50));
