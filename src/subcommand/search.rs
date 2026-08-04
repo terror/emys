@@ -1,5 +1,11 @@
 use super::*;
 
+#[cfg(unix)]
+const BATCH_SIZE: usize = 256;
+
+#[cfg(unix)]
+const CHANNEL_CAPACITY: usize = 8;
+
 #[derive(Debug, Parser)]
 pub(crate) struct Search {
   #[arg(short, long)]
@@ -12,30 +18,26 @@ pub(crate) struct Search {
 
 impl Search {
   #[cfg(unix)]
-  const BATCH_SIZE: usize = 256;
-
-  #[cfg(unix)]
-  fn load(database: &Database, sender: &SkimItemSender) -> Result {
-    let mut batch = Vec::with_capacity(Self::BATCH_SIZE);
-    let mut batch_size = 1;
+  fn load_items(database: &Database, sender: &SkimItemSender) -> Result {
+    let mut batch: Vec<Arc<dyn SkimItem>> = Vec::with_capacity(BATCH_SIZE);
+    let mut flush_threshold = 1;
 
     database.for_each_command(|command| {
-      batch.push(Arc::new(command) as Arc<dyn SkimItem>);
+      batch.push(Arc::new(command));
 
-      if batch.len() < batch_size {
+      if batch.len() < flush_threshold {
         return true;
       }
 
-      let sent = sender
-        .send(mem::replace(
-          &mut batch,
-          Vec::with_capacity(Self::BATCH_SIZE),
-        ))
-        .is_ok();
+      let next_batch = Vec::with_capacity(BATCH_SIZE);
+      let current_batch = mem::replace(&mut batch, next_batch);
 
-      batch_size = Self::BATCH_SIZE;
+      if sender.send(current_batch).is_err() {
+        return false;
+      }
 
-      sent
+      flush_threshold = BATCH_SIZE;
+      true
     })?;
 
     if !batch.is_empty() {
@@ -47,22 +49,10 @@ impl Search {
 
   pub(crate) fn run(self, database: Database) -> Result {
     if self.interactive {
-      return self.run_interactive(database);
+      self.run_interactive(database)
+    } else {
+      self.run_non_interactive(&database)
     }
-
-    for (_, execution) in database.search(&self.query, self.limit)? {
-      println!(
-        "{}\t{}\t{}",
-        execution.timestamp_ns,
-        execution
-          .exit_code
-          .map(|exit_code| exit_code.to_string())
-          .unwrap_or_default(),
-        execution.command,
-      );
-    }
-
-    Ok(())
   }
 
   #[cfg(not(unix))]
@@ -82,22 +72,41 @@ impl Search {
       .query(&self.query)
       .build()?;
 
-    let (sender, receiver) = bounded(8);
+    let (sender, receiver) = bounded(CHANNEL_CAPACITY);
 
-    let loader = thread::spawn(move || Self::load(&database, &sender));
+    let loader = thread::spawn(move || Self::load_items(&database, &sender));
 
     let output = Skim::run_with(options, Some(receiver));
 
-    loader
+    let load_result = loader
       .join()
-      .map_err(|_| Error::msg("interactive search loader panicked"))??;
+      .map_err(|_| Error::msg("interactive search loader panicked"))?;
+
+    load_result?;
 
     let output = output.map_err(|error| Error::msg(error.to_string()))?;
 
-    if !output.is_abort
-      && let Some(item) = output.selected_items.first()
-    {
+    if output.is_abort {
+      return Ok(());
+    }
+
+    if let Some(item) = output.selected_items.first() {
       println!("{}", item.output());
+    }
+
+    Ok(())
+  }
+
+  fn run_non_interactive(&self, database: &Database) -> Result {
+    for (_, execution) in database.search(&self.query, self.limit)? {
+      let exit_code = execution
+        .exit_code
+        .map_or_else(String::new, |code| code.to_string());
+
+      println!(
+        "{}\t{}\t{}",
+        execution.timestamp_ns, exit_code, execution.command
+      );
     }
 
     Ok(())
