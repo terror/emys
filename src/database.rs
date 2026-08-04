@@ -408,7 +408,7 @@ impl Database {
     input
       .update_after(records.iter().map(|record| &record.fingerprint).cloned());
 
-    let diff = Diff::compute(Algorithm::Myers, &input);
+    let diff = Diff::compute(Algorithm::MyersMinimal, &input);
 
     let identifiers = (0..records_len)
       .scan(0_u32, |before, after| {
@@ -1481,6 +1481,43 @@ mod tests {
     assert_eq!(
       error.to_string(),
       "execution limit exceeds SQLite integer range",
+    );
+  }
+
+  #[test]
+  fn reconcile_minimizes_new_records() {
+    let mut state = 0_u32;
+
+    let mut next = || {
+      state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+      vec![(state >> 24) as u8]
+    };
+
+    let fingerprints = (0..30_000).map(|_| next()).collect::<Vec<_>>();
+
+    let previous = fingerprints
+      .iter()
+      .enumerate()
+      .map(|(index, fingerprint)| (fingerprint.clone(), index.to_string()))
+      .collect::<Vec<_>>();
+
+    let records = fingerprints[3_000..]
+      .iter()
+      .cloned()
+      .chain((0..300).map(|_| next()))
+      .map(|fingerprint| Record {
+        execution: Execution::default(),
+        fingerprint,
+      })
+      .collect::<Vec<_>>();
+
+    assert_eq!(
+      Database::reconcile(&previous, &records)
+        .unwrap()
+        .into_iter()
+        .filter(Option::is_none)
+        .count(),
+      300,
     );
   }
 
