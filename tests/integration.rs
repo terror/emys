@@ -391,8 +391,8 @@ fn import_bash() -> Result {
 
   test
     .command()
-    .environment("HISTFILE", &history)
     .arguments(["import", "bash"])
+    .argument(&history)
     .expected_stdout("imported 2 executions from [ROOT]/history\n")
     .run()?;
 
@@ -499,27 +499,44 @@ fn import_zsh() -> Result {
 }
 
 #[test]
-fn import_zsh_histfile() -> Result {
+fn import_defaults_are_shell_specific() -> Result {
   let test = Test::new()?;
 
-  let history = test.path("history");
+  let bash_history = test.path(".bash_history");
+  let other_history = test.path("history");
+  let zsh_history = test.path(".zsh_history");
 
-  fs::write(&history, "foo\n")?;
+  fs::write(&bash_history, "foo\n")?;
+  fs::write(&other_history, "qux\n")?;
+  fs::write(&zsh_history, ": 1:0;bar\n")?;
 
   test
     .command()
-    .environment("HISTFILE", &history)
+    .environment("HISTFILE", &other_history)
+    .environment("HOME", test.tempdir.path())
     .arguments(["import", "zsh"])
-    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .expected_stdout("imported 1 executions from [ROOT]/.zsh_history\n")
     .run()?;
 
+  test
+    .command()
+    .environment("HISTFILE", &other_history)
+    .environment("HOME", test.tempdir.path())
+    .arguments(["import", "bash"])
+    .expected_stdout("imported 1 executions from [ROOT]/.bash_history\n")
+    .run()?;
+
+  let rows = test
+    .database()?
+    .prepare("SELECT command, shell FROM executions ORDER BY shell")?
+    .query_map([], |row| {
+      Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
+
   assert_eq!(
-    test.database()?.query_row(
-      "SELECT COUNT(*) FROM executions",
-      [],
-      |row| { row.get::<_, i64>(0) }
-    )?,
-    1,
+    rows,
+    [("foo".into(), "bash".into()), ("bar".into(), "zsh".into())],
   );
 
   Ok(())

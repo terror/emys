@@ -3,13 +3,16 @@ use super::*;
 mod bash;
 mod zsh;
 
-pub(crate) use bash::Bash;
-pub(crate) use zsh::Zsh;
+pub(crate) use {bash::Bash, zsh::Zsh};
 
 pub(super) trait Importer {
+  const DEFAULT_HISTORY_FILE: &'static str;
   const NAME: &'static str;
 
   type Parser: Parser;
+
+  /// Returns the history path explicitly supplied by the user.
+  fn explicit_path(&self) -> Option<&Path>;
 
   /// Imports this source's history into the database.
   fn import(&self, database: &Database) -> Result {
@@ -67,6 +70,21 @@ pub(super) trait Importer {
     Ok(())
   }
 
-  /// Determines the history file path from source-specific configuration.
-  fn path(&self) -> Result<PathBuf>;
+  /// Resolves the history path from an explicit path or the user's home directory.
+  fn path(&self) -> Result<PathBuf> {
+    self
+      .explicit_path()
+      .map(Path::to_owned)
+      .or_else(|| {
+        env::var_os("HOME")
+          .filter(|path| !path.is_empty())
+          .map(|path| PathBuf::from(path).join(Self::DEFAULT_HISTORY_FILE))
+      })
+      .with_context(|| {
+        format!(
+          "failed to determine {} history path; pass PATH or set HOME",
+          <Self::Parser as Parser>::FORMAT,
+        )
+      })
+  }
 }
