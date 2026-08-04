@@ -76,8 +76,8 @@ impl Progress {
     }
   }
 
-  pub(super) fn update(&self, status: ProgressEntry) {
-    if !status.processed.is_multiple_of(Self::UPDATE_INTERVAL) {
+  pub(super) fn update(&self, entry: ProgressEntry) {
+    if !entry.processed.is_multiple_of(Self::UPDATE_INTERVAL) {
       return;
     }
 
@@ -87,7 +87,7 @@ impl Progress {
 
     bar.set_message(format!(
       "{}: {} scanned, {} new",
-      self.name, status.processed, status.inserted,
+      self.name, entry.processed, entry.inserted,
     ));
   }
 }
