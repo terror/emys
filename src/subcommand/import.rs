@@ -1,18 +1,14 @@
 use super::*;
 
 #[derive(Debug, Clap)]
-pub(crate) enum Import {
-  Bash(Bash),
-  Fish(Fish),
-  Zsh(Zsh),
+pub(crate) struct Import {
+  #[arg(long, value_name = "PATH")]
+  path: Option<PathBuf>,
+  shell: Shell,
 }
 
 impl Import {
   pub(crate) fn run(self, database: &Database) -> Result {
-    match self {
-      Self::Bash(bash) => bash.import(database),
-      Self::Fish(fish) => fish.import(database),
-      Self::Zsh(zsh) => zsh.import(database),
-    }
+    self.shell.import(database, self.path.as_deref())
   }
 }

@@ -55,8 +55,6 @@ mod tests {
   struct TestParser(Vec<u8>);
 
   impl Parser for TestParser {
-    const FORMAT: &'static str = "test";
-
     fn finish(&mut self) -> Result<Option<Record>> {
       Ok(Some(Record::new(
         Execution {

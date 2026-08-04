@@ -3,13 +3,13 @@ use super::*;
 const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
 
 #[derive(Default)]
-pub(crate) struct Fish {
+pub(crate) struct Parser {
   command: Option<Vec<u8>>,
   plain_timestamp_ns: i64,
   timestamp: Option<(Vec<u8>, usize)>,
 }
 
-impl Fish {
+impl Parser {
   fn complete(&mut self) -> Result<Option<Record>> {
     let Some(command) = self.command.take() else {
       return Ok(None);
@@ -86,9 +86,7 @@ impl Fish {
   }
 }
 
-impl Parser for Fish {
-  const FORMAT: &'static str = "fish";
-
+impl crate::parser::Parser for Parser {
   fn finish(&mut self) -> Result<Option<Record>> {
     self.complete()
   }
@@ -121,9 +119,10 @@ mod tests {
   #[test]
   fn history() {
     assert_eq!(
-      Fish::records(
-        indoc! {
-          b"
+      Shell::Fish
+        .records(
+          indoc! {
+            b"
           - cmd: foo\\nbar\\\\baz
             when: 2
             paths:
@@ -131,11 +130,11 @@ mod tests {
           - cmd: qux
             added_when: 1
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -165,7 +164,8 @@ mod tests {
   #[test]
   fn invalid_entries_are_ignored() {
     assert_eq!(
-      Fish::records(&b"foo\n  when: 1\n- cmd:\n  when: 2"[..])
+      Shell::Fish
+        .records(&b"foo\n  when: 1\n- cmd:\n  when: 2"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       Vec::new(),
@@ -175,7 +175,8 @@ mod tests {
   #[test]
   fn invalid_timestamp_is_plain() {
     assert_eq!(
-      Fish::records(&b"- cmd: foo\n  when: bar"[..])
+      Shell::Fish
+        .records(&b"- cmd: foo\n  when: bar"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
         .execution,
@@ -190,7 +191,8 @@ mod tests {
   #[test]
   fn invalid_utf8_is_lossy() {
     assert_eq!(
-      Fish::records(&b"- cmd: \xFF"[..])
+      Shell::Fish
+        .records(&b"- cmd: \xFF"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
         .execution
@@ -202,7 +204,8 @@ mod tests {
   #[test]
   fn timestamp_overflow() {
     assert_eq!(
-      Fish::records(&b"- cmd: foo\n  when: 9223372037"[..])
+      Shell::Fish
+        .records(&b"- cmd: foo\n  when: 9223372037"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),

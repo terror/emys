@@ -5,7 +5,6 @@ use {
   database::Database,
   execution::Execution,
   imara_diff::{Algorithm, Diff, InternedInput},
-  importer::{Bash, Fish, Importer, Zsh},
   indicatif::{ProgressBar, ProgressStyle},
   line::Line,
   lines::Lines,
@@ -45,7 +44,6 @@ use {
 mod arguments;
 mod database;
 mod execution;
-mod importer;
 mod line;
 mod lines;
 mod parser;
