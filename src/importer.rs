@@ -1,9 +1,10 @@
 use super::*;
 
 mod bash;
+mod fish;
 mod zsh;
 
-pub(crate) use {bash::Bash, zsh::Zsh};
+pub(crate) use {bash::Bash, fish::Fish, zsh::Zsh};
 
 pub(super) trait Importer {
   const DEFAULT_HISTORY_FILE: &'static str;

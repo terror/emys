@@ -432,6 +432,59 @@ fn import_bash() -> Result {
 }
 
 #[test]
+fn import_fish() -> Result {
+  let test = Test::new()?;
+
+  let history = test.path("history");
+
+  fs::write(
+    &history,
+    "- cmd: git status\n  when: 1700000000\n- cmd: for foo in bar\\n    echo $foo\\nend\n  when: 1700000001\n  paths:\n    - /foo\n",
+  )?;
+
+  test
+    .command()
+    .arguments(["import", "fish"])
+    .argument(&history)
+    .expected_stdout("imported 2 executions from [ROOT]/history\n")
+    .run()?;
+
+  let rows = test
+    .database()?
+    .prepare(
+      "SELECT command, timestamp_ns, shell
+       FROM executions
+       ORDER BY timestamp_ns",
+    )?
+    .query_map([], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, i64>(1)?,
+        row.get::<_, String>(2)?,
+      ))
+    })?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
+
+  assert_eq!(
+    rows,
+    [
+      (
+        "git status".into(),
+        1_700_000_000_000_000_000,
+        "fish".into(),
+      ),
+      (
+        "for foo in bar\n    echo $foo\nend".into(),
+        1_700_000_001_000_000_000,
+        "fish".into(),
+      ),
+    ],
+  );
+
+  Ok(())
+}
+
+#[test]
 fn import_zsh() -> Result {
   let test = Test::new()?;
 
@@ -503,10 +556,13 @@ fn import_defaults_are_shell_specific() -> Result {
   let test = Test::new()?;
 
   let bash_history = test.path(".bash_history");
+  let fish_history = test.path("fish/fish_history");
   let other_history = test.path("history");
   let zsh_history = test.path(".zsh_history");
 
+  fs::create_dir(test.path("fish"))?;
   fs::write(&bash_history, "foo\n")?;
+  fs::write(&fish_history, "- cmd: baz\n  when: 2\n")?;
   fs::write(&other_history, "qux\n")?;
   fs::write(&zsh_history, ": 1:0;bar\n")?;
 
@@ -526,6 +582,13 @@ fn import_defaults_are_shell_specific() -> Result {
     .expected_stdout("imported 1 executions from [ROOT]/.bash_history\n")
     .run()?;
 
+  test
+    .command()
+    .environment("HOME", test.tempdir.path())
+    .arguments(["import", "fish"])
+    .expected_stdout("imported 1 executions from [ROOT]/fish/fish_history\n")
+    .run()?;
+
   let rows = test
     .database()?
     .prepare("SELECT command, shell FROM executions ORDER BY shell")?
@@ -536,7 +599,11 @@ fn import_defaults_are_shell_specific() -> Result {
 
   assert_eq!(
     rows,
-    [("foo".into(), "bash".into()), ("bar".into(), "zsh".into())],
+    [
+      ("foo".into(), "bash".into()),
+      ("baz".into(), "fish".into()),
+      ("bar".into(), "zsh".into()),
+    ],
   );
 
   Ok(())
@@ -571,6 +638,48 @@ fn init_bash() -> Result {
   bash.stdin.take().unwrap().write_all(script.as_bytes())?;
 
   let output = bash.wait_with_output()?;
+
+  assert_eq!(
+    (
+      output.status.success(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
+    ),
+    (true, String::new(), String::new()),
+  );
+
+  Ok(())
+}
+
+#[test]
+fn init_fish() -> Result {
+  let test = Test::new()?;
+
+  test
+    .command()
+    .arguments(["init", "fish"])
+    .expected_stdout(
+      &include_str!("../src/shell/fish/init.fish").replace('\\', "/"),
+    )
+    .run()?;
+
+  let script = include_str!("../src/shell/fish/init.fish");
+
+  let mut fish = match Command::new("fish")
+    .arg("-n")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+  {
+    Ok(fish) => fish,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => panic!("failed to run fish: {error}"),
+  };
+
+  fish.stdin.take().unwrap().write_all(script.as_bytes())?;
+
+  let output = fish.wait_with_output()?;
 
   assert_eq!(
     (
@@ -692,6 +801,111 @@ fn search() -> Result {
     .arguments(["search", "--limit", "20", "FO"])
     .expected_stdout("1\t\tfoo\n")
     .run()?;
+
+  Ok(())
+}
+
+#[test]
+fn fish_records_execution() -> Result {
+  let test = Test::new()?;
+
+  test
+    .command()
+    .arguments(["init", "fish"])
+    .expected_stdout(
+      &include_str!("../src/shell/fish/init.fish").replace('\\', "/"),
+    )
+    .run()?;
+
+  let script = include_str!("../src/shell/fish/init.fish");
+
+  let path = env::join_paths(
+    once(
+      executable_path(env!("CARGO_PKG_NAME"))
+        .parent()
+        .unwrap()
+        .to_path_buf(),
+    )
+    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+  )?;
+
+  let mut fish = match Command::new("fish")
+    .arg("--no-config")
+    .env("PATH", path)
+    .env("XDG_DATA_HOME", test.tempdir.path())
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+  {
+    Ok(fish) => fish,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => panic!("failed to run fish: {error}"),
+  };
+
+  fish.stdin.take().unwrap().write_all(
+    formatdoc! {
+      "
+        {script}
+        _honu_preexec 'foo'
+        false
+        _honu_postexec
+        "
+    }
+    .as_bytes(),
+  )?;
+
+  let output = fish.wait_with_output()?;
+
+  assert_eq!(
+    (
+      output.status.code(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
+    ),
+    (Some(1), String::new(), String::new()),
+  );
+
+  assert_eq!(
+    test.database()?.query_row(
+      "SELECT
+        COUNT(*),
+        command,
+        exit_code,
+        directory,
+        session <> '',
+        hostname <> '',
+        shell,
+        timestamp_ns > 0,
+        duration_ns IS NULL OR duration_ns >= 0
+      FROM executions",
+      [],
+      |row| {
+        Ok((
+          row.get::<_, i64>(0)?,
+          row.get::<_, String>(1)?,
+          row.get::<_, i32>(2)?,
+          row.get::<_, String>(3)?,
+          row.get::<_, bool>(4)?,
+          row.get::<_, bool>(5)?,
+          row.get::<_, String>(6)?,
+          row.get::<_, bool>(7)?,
+          row.get::<_, bool>(8)?,
+        ))
+      },
+    )?,
+    (
+      1,
+      "foo".into(),
+      1,
+      env::current_dir()?.to_string_lossy().into_owned(),
+      true,
+      true,
+      "fish".into(),
+      true,
+      true,
+    ),
+  );
 
   Ok(())
 }
