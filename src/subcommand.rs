@@ -11,7 +11,7 @@ mod init;
 mod list;
 mod search;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clap)]
 pub(crate) enum Subcommand {
   #[command(about = "Record a shell command", alias = "a")]
   Add(Add),

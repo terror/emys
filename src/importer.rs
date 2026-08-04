@@ -1,16 +1,13 @@
 use super::*;
 
-mod progress;
-mod stream;
 mod zsh;
 
-use progress::Progress;
-use stream::{Entries, EntryParser, Line};
 pub(crate) use zsh::Zsh;
 
 pub(super) trait Importer {
-  const FORMAT: &'static str;
   const NAME: &'static str;
+
+  type Parser: Parser;
 
   /// Imports this source's history into the database.
   fn import(&self, database: &Database) -> Result {
@@ -33,7 +30,7 @@ pub(super) trait Importer {
 
     let reader = progress.reader(reader);
 
-    let entries = Self::parse(reader);
+    let entries = Self::Parser::entries(reader);
 
     let mut occurrences = HashMap::new();
 
@@ -46,7 +43,7 @@ pub(super) trait Importer {
         )
       })?;
 
-      let key = entry.identity.identifier(Self::FORMAT, 0);
+      let key = entry.identity.identifier(Self::Parser::FORMAT, 0);
 
       let occurrence = occurrences.entry(key).or_insert(0_u64);
 
@@ -54,11 +51,11 @@ pub(super) trait Importer {
         .checked_add(1)
         .context("history occurrence count overflowed")?;
 
-      let id = entry.identity.identifier(Self::FORMAT, *occurrence);
+      let id = entry.identity.identifier(Self::Parser::FORMAT, *occurrence);
 
       let mut execution = entry.execution;
 
-      execution.shell = Some(Self::FORMAT.into());
+      execution.shell = Some(Self::Parser::FORMAT.into());
 
       Ok((id, execution))
     });
@@ -73,9 +70,6 @@ pub(super) trait Importer {
 
     Ok(())
   }
-
-  /// Parses raw history file contents into executions and their identities.
-  fn parse(reader: impl Read) -> impl Iterator<Item = Result<ParsedExecution>>;
 
   /// Determines the history file path from source-specific configuration.
   fn path(&self) -> Result<PathBuf>;

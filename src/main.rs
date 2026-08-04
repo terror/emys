@@ -1,13 +1,18 @@
 use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
-  clap::{Parser, ValueEnum},
+  clap::{Parser as Clap, ValueEnum},
   database::{Database, ImportProgress},
+  entries::Entries,
   execution::Execution,
   identity::Identity,
   importer::{Importer, Zsh},
   indicatif::{ProgressBar, ProgressStyle},
+  line::Line,
+  lines::Lines,
   parsed_execution::ParsedExecution,
+  parser::Parser,
+  progress::Progress,
   rusqlite::{Connection, MAIN_DB, params},
   shell::Shell,
   std::{
@@ -40,10 +45,15 @@ use {
 
 mod arguments;
 mod database;
+mod entries;
 mod execution;
 mod identity;
 mod importer;
+mod line;
+mod lines;
 mod parsed_execution;
+mod parser;
+mod progress;
 mod shell;
 mod subcommand;
 
