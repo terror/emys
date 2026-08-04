@@ -477,77 +477,6 @@ impl Database {
 
     Ok(source)
   }
-
-  pub(crate) fn search(
-    &self,
-    query: &str,
-    limit: usize,
-  ) -> Result<Vec<(Uuid, Entry)>> {
-    let limit = i64::try_from(limit)
-      .context("entry limit exceeds SQLite integer range")?;
-
-    let mut statement = self.connection.prepare(
-      "WITH matches AS (
-        SELECT
-          id,
-          command,
-          timestamp_ns,
-          duration_ns,
-          exit_code,
-          directory,
-          session,
-          hostname,
-          shell,
-          ROW_NUMBER() OVER (
-            PARTITION BY command
-            ORDER BY timestamp_ns DESC, id DESC
-          ) AS command_rank
-        FROM entries
-        WHERE INSTR(LOWER(command), LOWER(?1)) > 0
-      )
-      SELECT
-        id,
-        command,
-        timestamp_ns,
-        duration_ns,
-        exit_code,
-        directory,
-        session,
-        hostname,
-        shell
-      FROM matches
-      WHERE command_rank = 1
-      ORDER BY timestamp_ns DESC, id DESC
-      LIMIT ?2",
-    )?;
-
-    let rows = statement.query_map(params![query, limit], |row| {
-      Ok((
-        row.get::<_, String>(0)?,
-        Entry {
-          command: row.get(1)?,
-          timestamp_ns: row.get(2)?,
-          duration_ns: row.get(3)?,
-          exit_code: row.get(4)?,
-          directory: row.get::<_, Option<String>>(5)?.map(PathBuf::from),
-          session: row.get(6)?,
-          hostname: row.get(7)?,
-          shell: row.get(8)?,
-        },
-      ))
-    })?;
-
-    rows
-      .map(|row| {
-        let (id, entry) = row?;
-
-        let id = Uuid::parse_str(&id)
-          .with_context(|| format!("invalid entry ID `{id}`"))?;
-
-        Ok((id, entry))
-      })
-      .collect()
-  }
 }
 
 impl TryFrom<Connection> for Database {
@@ -1036,21 +965,13 @@ mod tests {
     );
 
     assert_eq!(
-      (
-        database
-          .recent(20)
-          .unwrap()
-          .into_iter()
-          .map(|(_, entry)| entry)
-          .collect::<Vec<_>>(),
-        database
-          .search("foo", 20)
-          .unwrap()
-          .into_iter()
-          .map(|(_, entry)| entry)
-          .collect::<Vec<_>>(),
-      ),
-      (vec![second.clone(), first], vec![second]),
+      database
+        .recent(20)
+        .unwrap()
+        .into_iter()
+        .map(|(_, entry)| entry)
+        .collect::<Vec<_>>(),
+      vec![second, first],
     );
   }
 
@@ -1547,119 +1468,6 @@ mod tests {
         .filter(Option::is_none)
         .count(),
       300,
-    );
-  }
-
-  #[test]
-  fn search_filters_orders_and_collapses_entries() {
-    let database =
-      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
-
-    database
-      .insert(&Entry {
-        command: "git status".into(),
-        timestamp_ns: 1,
-        exit_code: Some(1),
-        ..Default::default()
-      })
-      .unwrap();
-
-    let uppercase = database
-      .insert(&Entry {
-        command: "GIT log".into(),
-        timestamp_ns: 2,
-        ..Default::default()
-      })
-      .unwrap();
-
-    let newest = database
-      .insert(&Entry {
-        command: "git status".into(),
-        timestamp_ns: 3,
-        exit_code: Some(0),
-        directory: Some("/foo".into()),
-        ..Default::default()
-      })
-      .unwrap();
-
-    database
-      .insert(&Entry {
-        command: "cargo test".into(),
-        timestamp_ns: 4,
-        ..Default::default()
-      })
-      .unwrap();
-
-    let literal = database
-      .insert(&Entry {
-        command: "echo %".into(),
-        timestamp_ns: 5,
-        ..Default::default()
-      })
-      .unwrap();
-
-    assert_eq!(
-      database.search("gIt", 20).unwrap(),
-      vec![
-        (
-          newest,
-          Entry {
-            command: "git status".into(),
-            timestamp_ns: 3,
-            exit_code: Some(0),
-            directory: Some("/foo".into()),
-            ..Default::default()
-          },
-        ),
-        (
-          uppercase,
-          Entry {
-            command: "GIT log".into(),
-            timestamp_ns: 2,
-            ..Default::default()
-          },
-        ),
-      ],
-    );
-
-    assert_eq!(database.search("git", 0).unwrap(), Vec::new());
-
-    assert_eq!(
-      database.search("%", 20).unwrap(),
-      vec![(
-        literal,
-        Entry {
-          command: "echo %".into(),
-          timestamp_ns: 5,
-          ..Default::default()
-        },
-      )],
-    );
-
-    assert_eq!(
-      database
-        .search("", 1)
-        .unwrap()
-        .into_iter()
-        .map(|(_, entry)| entry.command)
-        .collect::<Vec<_>>(),
-      vec!["echo %"],
-    );
-  }
-
-  #[cfg(target_pointer_width = "64")]
-  #[test]
-  fn search_rejects_large_limit() {
-    let database =
-      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
-
-    let Err(error) = database.search("foo", usize::MAX) else {
-      panic!("expected large limit to fail")
-    };
-
-    assert_eq!(
-      error.to_string(),
-      "entry limit exceeds SQLite integer range",
     );
   }
 

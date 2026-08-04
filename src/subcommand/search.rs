@@ -2,8 +2,6 @@ use super::*;
 
 #[derive(Debug, Clap)]
 pub(crate) struct Search {
-  #[arg(short, long)]
-  interactive: bool,
   #[arg(short, long, default_value_t = 50)]
   limit: usize,
   #[arg(default_value = "")]
@@ -52,21 +50,13 @@ impl Search {
     Ok(())
   }
 
-  pub(crate) fn run(self, database: Database) -> Result {
-    if self.interactive {
-      self.run_interactive(database)
-    } else {
-      self.run_non_interactive(&database)
-    }
-  }
-
   #[cfg(not(unix))]
-  fn run_interactive(&self, _database: Database) -> Result {
-    bail!("interactive search is unsupported on this platform")
+  pub(crate) fn run(self, _database: Database) -> Result {
+    bail!("search is unsupported on this platform")
   }
 
   #[cfg(unix)]
-  fn run_interactive(&self, database: Database) -> Result {
+  pub(crate) fn run(self, database: Database) -> Result {
     if !database.has_entries()? {
       return Ok(());
     }
@@ -100,18 +90,6 @@ impl Search {
 
     if let Some(item) = output.selected_items.first() {
       println!("{}", item.output());
-    }
-
-    Ok(())
-  }
-
-  fn run_non_interactive(&self, database: &Database) -> Result {
-    for (_, entry) in database.search(&self.query, self.limit)? {
-      let exit_code = entry
-        .exit_code
-        .map_or_else(String::new, |code| code.to_string());
-
-      println!("{}\t{}\t{}", entry.timestamp_ns, exit_code, entry.command);
     }
 
     Ok(())
