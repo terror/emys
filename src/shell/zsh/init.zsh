@@ -62,6 +62,8 @@ _emys_precmd() {
 _emys_search() {
   emulate -L zsh
 
+  zle -I
+
   local selected
   selected="$(command emys search --interactive -- "$BUFFER")"
   local exit_code="$?"
@@ -71,7 +73,7 @@ _emys_search() {
     CURSOR="${#BUFFER}"
   fi
 
-  zle redisplay
+  zle reset-prompt
 
   return "$exit_code"
 }
