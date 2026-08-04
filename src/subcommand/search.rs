@@ -12,10 +12,11 @@ pub(crate) struct Search {
 
 impl Search {
   #[cfg(unix)]
-  fn load(database: &Database, sender: &SkimItemSender) -> Result {
-    const BATCH_SIZE: usize = 256;
+  const BATCH_SIZE: usize = 256;
 
-    let mut batch = Vec::with_capacity(BATCH_SIZE);
+  #[cfg(unix)]
+  fn load(database: &Database, sender: &SkimItemSender) -> Result {
+    let mut batch = Vec::with_capacity(Self::BATCH_SIZE);
     let mut batch_size = 1;
 
     database.for_each_command(|command| {
@@ -26,10 +27,13 @@ impl Search {
       }
 
       let sent = sender
-        .send(mem::replace(&mut batch, Vec::with_capacity(BATCH_SIZE)))
+        .send(mem::replace(
+          &mut batch,
+          Vec::with_capacity(Self::BATCH_SIZE),
+        ))
         .is_ok();
 
-      batch_size = BATCH_SIZE;
+      batch_size = Self::BATCH_SIZE;
 
       sent
     })?;
