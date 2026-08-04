@@ -4,6 +4,14 @@ pub(crate) struct Database {
   connection: Connection,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SearchEntry {
+  pub(crate) command: String,
+  pub(crate) directory: Option<PathBuf>,
+  pub(crate) exit_code: Option<i32>,
+  pub(crate) timestamp_ns: i64,
+}
+
 impl Database {
   const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
 
@@ -101,10 +109,10 @@ impl Database {
     &self.connection
   }
 
-  pub(crate) fn for_each_command(
+  pub(crate) fn for_each_latest_entry(
     &self,
     limit: Option<usize>,
-    mut callback: impl FnMut(String) -> bool,
+    mut callback: impl FnMut(SearchEntry) -> bool,
   ) -> Result {
     let limit = limit
       .map(i64::try_from)
@@ -112,12 +120,20 @@ impl Database {
       .context("command limit exceeds SQLite integer range")?;
 
     let query = if limit.is_some() {
-      "SELECT command
+      "SELECT
+         command,
+         timestamp_ns,
+         exit_code,
+         directory
        FROM recency
        ORDER BY timestamp_ns DESC, entry_id DESC
        LIMIT ?1"
     } else {
-      "SELECT command
+      "SELECT
+         command,
+         timestamp_ns,
+         exit_code,
+         directory
        FROM recency
        ORDER BY timestamp_ns DESC, entry_id DESC"
     };
@@ -131,9 +147,14 @@ impl Database {
     };
 
     while let Some(row) = rows.next()? {
-      let command = row.get::<_, String>(0)?;
+      let entry = SearchEntry {
+        command: row.get(0)?,
+        timestamp_ns: row.get(1)?,
+        exit_code: row.get(2)?,
+        directory: row.get::<_, Option<String>>(3)?.map(PathBuf::from),
+      };
 
-      if !callback(command) {
+      if !callback(entry) {
         break;
       }
     }
@@ -290,8 +311,14 @@ impl Database {
     transaction.execute("DELETE FROM recency", [])?;
 
     transaction.execute(
-      "INSERT OR IGNORE INTO recency (command, timestamp_ns, entry_id)
-       SELECT command, timestamp_ns, id
+      "INSERT OR IGNORE INTO recency (
+         command,
+         timestamp_ns,
+         entry_id,
+         exit_code,
+         directory
+       )
+       SELECT command, timestamp_ns, id, exit_code, directory
        FROM entries
        ORDER BY timestamp_ns DESC, id DESC",
       [],
@@ -338,17 +365,30 @@ impl Database {
     )?;
 
     transaction.execute(
-      "INSERT INTO recency (command, timestamp_ns, entry_id)
-       VALUES (?1, ?2, ?3)
+      "INSERT INTO recency (
+         command,
+         timestamp_ns,
+         entry_id,
+         exit_code,
+         directory
+       ) VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT (command) DO UPDATE SET
-         timestamp_ns = excluded.timestamp_ns,
-         entry_id = excluded.entry_id
+          timestamp_ns = excluded.timestamp_ns,
+          entry_id = excluded.entry_id,
+          exit_code = excluded.exit_code,
+          directory = excluded.directory
        WHERE excluded.timestamp_ns > recency.timestamp_ns
          OR (
            excluded.timestamp_ns = recency.timestamp_ns
            AND excluded.entry_id > recency.entry_id
          )",
-      params![entry.command, entry.timestamp_ns, id.to_string()],
+      params![
+        entry.command,
+        entry.timestamp_ns,
+        id.to_string(),
+        entry.exit_code,
+        directory,
+      ],
     )?;
 
     transaction.commit()?;
@@ -829,48 +869,88 @@ mod tests {
   }
 
   #[test]
-  fn for_each_command_orders_and_limits_unique_commands() {
+  fn for_each_latest_entry_orders_and_limits_unique_commands() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    for (command, timestamp_ns) in [("foo", 1), ("bar", 2), ("foo", 3)] {
+    for (command, timestamp_ns, directory, exit_code) in [
+      ("foo", 1, "/foo", 1),
+      ("bar", 2, "/bar", 2),
+      ("foo", 3, "/baz", 3),
+    ] {
       database
         .insert(&Entry {
           command: command.into(),
+          directory: Some(directory.into()),
+          exit_code: Some(exit_code),
           timestamp_ns,
           ..Default::default()
         })
         .unwrap();
     }
 
-    let mut commands = Vec::new();
+    let mut entries = Vec::new();
 
     database
-      .for_each_command(None, |command| {
-        commands.push(command);
+      .for_each_latest_entry(None, |entry| {
+        entries.push(entry);
         true
       })
       .unwrap();
 
-    assert_eq!(commands, ["foo", "bar"]);
+    assert_eq!(
+      entries,
+      [
+        SearchEntry {
+          command: "foo".into(),
+          directory: Some("/baz".into()),
+          exit_code: Some(3),
+          timestamp_ns: 3,
+        },
+        SearchEntry {
+          command: "bar".into(),
+          directory: Some("/bar".into()),
+          exit_code: Some(2),
+          timestamp_ns: 2,
+        },
+      ],
+    );
 
     database
-      .for_each_command(Some(1), |command| {
-        commands.push(command);
+      .for_each_latest_entry(Some(1), |entry| {
+        entries.push(entry);
         true
       })
       .unwrap();
 
-    assert_eq!(commands, ["foo", "bar", "foo"]);
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[2].command, "foo");
+    assert_eq!(entries[2].directory, Some("/baz".into()));
+    assert_eq!(entries[2].exit_code, Some(3));
 
     database
-      .for_each_command(Some(0), |command| {
-        commands.push(command);
+      .for_each_latest_entry(Some(0), |entry| {
+        entries.push(entry);
         true
       })
       .unwrap();
 
-    assert_eq!(commands, ["foo", "bar", "foo"]);
+    assert_eq!(entries.len(), 3);
+
+    assert!(
+      database
+        .connection()
+        .query_row(
+          "EXPLAIN QUERY PLAN
+           SELECT command, timestamp_ns, exit_code, directory
+           FROM recency
+           ORDER BY timestamp_ns DESC, entry_id DESC",
+          [],
+          |row| row.get::<_, String>(3),
+        )
+        .unwrap()
+        .contains("COVERING INDEX recency_timestamp"),
+    );
   }
 
   #[test]

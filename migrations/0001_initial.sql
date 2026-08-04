@@ -33,11 +33,19 @@ CREATE TABLE import_sources (
 CREATE TABLE recency (
   command       TEXT PRIMARY KEY NOT NULL CHECK (command <> ''),
   timestamp_ns  INTEGER NOT NULL,
-  entry_id      TEXT NOT NULL
+  entry_id      TEXT NOT NULL,
+  exit_code     INTEGER,
+  directory     TEXT
 ) STRICT;
 
 CREATE INDEX recency_timestamp
-ON recency (timestamp_ns DESC, entry_id DESC, command);
+ON recency (
+  timestamp_ns DESC,
+  entry_id DESC,
+  command,
+  exit_code,
+  directory
+);
 
 CREATE TABLE source_records (
   source_id     TEXT NOT NULL,

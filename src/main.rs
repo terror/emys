@@ -2,7 +2,7 @@ use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
   clap::{Parser as Clap, ValueEnum},
-  database::Database,
+  database::{Database, SearchEntry},
   entry::Entry,
   imara_diff::{Algorithm, Diff, InternedInput},
   indicatif::{ProgressBar, ProgressStyle},
@@ -11,15 +11,20 @@ use {
   parser::Parser,
   progress::Progress,
   progress_entry::ProgressEntry,
+  ratatui::{
+    style::{Color, Modifier},
+    text::Span,
+  },
   record::Record,
   records::Records,
   rusqlite::{Connection, MAIN_DB, Transaction, TransactionBehavior, params},
   shell::Shell,
   skim::{
-    Skim, SkimItem, SkimItemSender, options::SkimOptionsBuilder,
-    prelude::bounded,
+    DisplayContext, Skim, SkimItem, SkimItemSender,
+    options::SkimOptionsBuilder, prelude::bounded,
   },
   std::{
+    borrow::Cow,
     env, fs,
     io::{self, BufRead, BufReader, IsTerminal, Read},
     mem,
@@ -30,6 +35,7 @@ use {
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
   subcommand::Subcommand,
+  unicode_segmentation::UnicodeSegmentation,
   uuid::Uuid,
 };
 

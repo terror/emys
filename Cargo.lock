@@ -938,9 +938,12 @@ dependencies = [
  "imara-diff",
  "indicatif",
  "indoc",
+ "ratatui",
  "rusqlite",
  "skim",
  "tempfile",
+ "unicode-display-width",
+ "unicode-segmentation",
  "uuid",
  "xdg",
 ]
