@@ -2,7 +2,7 @@ use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
   clap::{Parser as Clap, ValueEnum},
-  database::{Database, ImportProgress},
+  database::Database,
   entries::Entries,
   execution::Execution,
   identity::Identity,
@@ -13,6 +13,7 @@ use {
   parsed_execution::ParsedExecution,
   parser::Parser,
   progress::Progress,
+  progress_entry::ProgressEntry,
   rusqlite::{Connection, MAIN_DB, params},
   shell::Shell,
   std::{
@@ -54,6 +55,7 @@ mod lines;
 mod parsed_execution;
 mod parser;
 mod progress;
+mod progress_entry;
 mod shell;
 mod subcommand;
 

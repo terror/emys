@@ -4,12 +4,6 @@ pub(crate) struct Database {
   connection: Connection,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct ImportProgress {
-  pub(crate) inserted: usize,
-  pub(crate) processed: usize,
-}
-
 impl Database {
   const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_initial.sql"),
@@ -128,7 +122,7 @@ impl Database {
   pub(crate) fn import(
     &self,
     records: impl IntoIterator<Item = Result<(Uuid, Execution)>>,
-    mut progress: impl FnMut(ImportProgress),
+    mut progress: impl FnMut(ProgressEntry),
   ) -> Result<usize> {
     let transaction = self.connection.unchecked_transaction()?;
 
@@ -167,7 +161,7 @@ impl Database {
           execution.shell,
         ])?;
 
-        progress(ImportProgress {
+        progress(ProgressEntry {
           inserted,
           processed: index + 1,
         });

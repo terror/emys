@@ -76,7 +76,7 @@ impl Progress {
     }
   }
 
-  pub(super) fn update(&self, status: ImportProgress) {
+  pub(super) fn update(&self, status: ProgressEntry) {
     if !status.processed.is_multiple_of(Self::UPDATE_INTERVAL) {
       return;
     }
