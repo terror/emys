@@ -1,7 +1,11 @@
 use super::*;
 
+mod progress;
+mod stream;
 mod zsh;
 
+use progress::Progress;
+use stream::{Entries, EntryParser, Line};
 pub(crate) use zsh::Zsh;
 
 pub(super) trait Importer {
@@ -12,41 +16,58 @@ pub(super) trait Importer {
   fn import(&self, database: &Database) -> Result {
     let path = self.path()?;
 
-    let contents = fs::read(&path).with_context(|| {
+    let file = fs::File::open(&path).with_context(|| {
       format!("failed to read {} history `{}`", Self::NAME, path.display())
     })?;
 
-    let entries = Self::parse(&contents).with_context(|| {
-      format!(
-        "failed to parse {} history `{}`",
-        Self::NAME,
-        path.display()
-      )
-    })?;
+    let metadata = file.metadata()?;
+
+    let progress =
+      Progress::new(Self::NAME, metadata.is_file().then_some(metadata.len()))?;
+
+    let reader: Box<dyn Read> = if metadata.is_file() {
+      Box::new(file.take(metadata.len()))
+    } else {
+      Box::new(file)
+    };
+
+    let reader = progress.reader(reader);
+
+    let entries = Self::parse(reader);
 
     let mut occurrences = HashMap::new();
 
-    let records = entries
-      .into_iter()
-      .map(|entry| {
-        let occurrence =
-          occurrences.entry(entry.identity.clone()).or_insert(0_u64);
+    let records = entries.map(|entry| {
+      let entry = entry.with_context(|| {
+        format!(
+          "failed to parse {} history `{}`",
+          Self::NAME,
+          path.display()
+        )
+      })?;
 
-        *occurrence = occurrence
-          .checked_add(1)
-          .context("history occurrence count overflowed")?;
+      let key = entry.identity.identifier(Self::FORMAT, 0);
 
-        let id = entry.identity.identifier(Self::FORMAT, *occurrence);
+      let occurrence = occurrences.entry(key).or_insert(0_u64);
 
-        let mut execution = entry.execution;
+      *occurrence = occurrence
+        .checked_add(1)
+        .context("history occurrence count overflowed")?;
 
-        execution.shell = Some(Self::FORMAT.into());
+      let id = entry.identity.identifier(Self::FORMAT, *occurrence);
 
-        Ok((id, execution))
-      })
-      .collect::<Result<Vec<_>>>()?;
+      let mut execution = entry.execution;
 
-    let inserted = database.import(&records)?;
+      execution.shell = Some(Self::FORMAT.into());
+
+      Ok((id, execution))
+    });
+
+    let result = database.import(records, |status| progress.update(status));
+
+    progress.finish();
+
+    let inserted = result?;
 
     println!("imported {inserted} executions from {}", path.display());
 
@@ -54,7 +75,7 @@ pub(super) trait Importer {
   }
 
   /// Parses raw history file contents into executions and their identities.
-  fn parse(contents: &[u8]) -> Result<Vec<ParsedExecution>>;
+  fn parse(reader: impl Read) -> impl Iterator<Item = Result<ParsedExecution>>;
 
   /// Determines the history file path from source-specific configuration.
   fn path(&self) -> Result<PathBuf>;
