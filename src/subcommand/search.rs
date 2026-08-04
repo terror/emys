@@ -2,8 +2,8 @@ use super::*;
 
 #[derive(Debug, Clap)]
 pub(crate) struct Search {
-  #[arg(short, long, default_value_t = 50)]
-  limit: usize,
+  #[arg(short, long)]
+  limit: Option<usize>,
   #[arg(default_value = "")]
   query: String,
 }
