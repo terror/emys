@@ -90,15 +90,20 @@ impl Database {
   #[cfg(unix)]
   pub(crate) fn for_each_command(
     &self,
+    limit: usize,
     mut callback: impl FnMut(String) -> bool,
   ) -> Result {
+    let limit = i64::try_from(limit)
+      .context("command limit exceeds SQLite integer range")?;
+
     let mut statement = self.connection.prepare(
       "SELECT command
        FROM commands
-       ORDER BY timestamp_ns DESC, execution_id DESC",
+       ORDER BY timestamp_ns DESC, execution_id DESC
+       LIMIT ?1",
     )?;
 
-    let mut rows = statement.query([])?;
+    let mut rows = statement.query([limit])?;
 
     while let Some(row) = rows.next()? {
       let command = row.get::<_, String>(0)?;
@@ -796,7 +801,7 @@ mod tests {
 
   #[cfg(unix)]
   #[test]
-  fn for_each_command_visits_every_unique_command_in_recent_order() {
+  fn for_each_command_orders_and_limits_unique_commands() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
@@ -813,7 +818,7 @@ mod tests {
     let mut commands = Vec::new();
 
     database
-      .for_each_command(|command| {
+      .for_each_command(20, |command| {
         commands.push(command);
         true
       })
@@ -822,9 +827,18 @@ mod tests {
     assert_eq!(commands, ["foo", "bar"]);
 
     database
-      .for_each_command(|command| {
+      .for_each_command(1, |command| {
         commands.push(command);
-        false
+        true
+      })
+      .unwrap();
+
+    assert_eq!(commands, ["foo", "bar", "foo"]);
+
+    database
+      .for_each_command(0, |command| {
+        commands.push(command);
+        true
       })
       .unwrap();
 
