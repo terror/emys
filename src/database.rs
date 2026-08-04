@@ -95,15 +95,7 @@ impl Database {
       let mut inserted = 0;
 
       for (id, execution) in records {
-        let directory = execution
-          .directory
-          .as_ref()
-          .map(|directory| {
-            directory
-              .to_str()
-              .context("execution directory is not valid UTF-8")
-          })
-          .transpose()?;
+        let directory = execution.directory()?;
 
         inserted += statement.execute(params![
           id.to_string(),
@@ -129,15 +121,7 @@ impl Database {
   pub(crate) fn insert(&self, execution: &Execution) -> Result<Uuid> {
     let id = Uuid::new_v4();
 
-    let directory = execution
-      .directory
-      .as_ref()
-      .map(|directory| {
-        directory
-          .to_str()
-          .context("execution directory is not valid UTF-8")
-      })
-      .transpose()?;
+    let directory = execution.directory()?;
 
     self.connection.execute(
       "INSERT INTO executions (
