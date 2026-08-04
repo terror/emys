@@ -5,12 +5,7 @@ pub(crate) struct Database {
 }
 
 impl Database {
-  const MIGRATIONS: &[&str] = &[
-    include_str!("../migrations/0001_initial.sql"),
-    include_str!("../migrations/0002_execution_timestamp_id.sql"),
-    include_str!("../migrations/0003_import_sources.sql"),
-    include_str!("../migrations/0004_commands.sql"),
-  ];
+  const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
 
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
 
@@ -1363,76 +1358,6 @@ mod tests {
   }
 
   #[test]
-  fn open_upgrades_schema() {
-    let connection = Connection::open_in_memory().unwrap();
-
-    connection.execute_batch(Database::MIGRATIONS[0]).unwrap();
-
-    for (id, command, timestamp_ns) in
-      [("foo", "foo", 1), ("bar", "bar", 2), ("baz", "foo", 3)]
-    {
-      connection
-        .execute(
-          "INSERT INTO executions (id, command, timestamp_ns)
-           VALUES (?1, ?2, ?3)",
-          params![id, command, timestamp_ns],
-        )
-        .unwrap();
-    }
-
-    connection.pragma_update(None, "user_version", 1).unwrap();
-
-    let database = Database::try_from(connection).unwrap();
-
-    let columns = database
-      .connection()
-      .prepare("SELECT name FROM pragma_index_info('executions_timestamp')")
-      .unwrap()
-      .query_map([], |row| row.get::<_, String>(0))
-      .unwrap()
-      .collect::<rusqlite::Result<Vec<_>>>()
-      .unwrap();
-
-    let commands = database
-      .connection()
-      .prepare(
-        "SELECT command, timestamp_ns, execution_id
-         FROM commands
-         ORDER BY timestamp_ns DESC, execution_id DESC",
-      )
-      .unwrap()
-      .query_map([], |row| {
-        Ok((
-          row.get::<_, String>(0)?,
-          row.get::<_, i64>(1)?,
-          row.get::<_, String>(2)?,
-        ))
-      })
-      .unwrap()
-      .collect::<rusqlite::Result<Vec<_>>>()
-      .unwrap();
-
-    assert_eq!(
-      (
-        database
-          .connection()
-          .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
-          .unwrap(),
-        columns,
-        commands,
-      ),
-      (
-        4,
-        vec!["timestamp_ns".into(), "id".into()],
-        vec![
-          ("foo".into(), 3, "baz".into()),
-          ("bar".into(), 2, "bar".into())
-        ],
-      ),
-    );
-  }
-
-  #[test]
   fn recent_orders_and_limits_executions() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
@@ -1689,7 +1614,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "database schema version 5 is unsupported; expected 4",
+      "database schema version 5 is unsupported; expected 1",
     );
   }
 }
