@@ -338,7 +338,7 @@ fn bash_records_execution() -> Result {
       1,
       "foo".into(),
       1,
-      env::current_dir()?.to_string_lossy().into_owned(),
+      env::current_dir()?.to_string_lossy().replace('\\', "/"),
       true,
       "bash".into(),
       true,
