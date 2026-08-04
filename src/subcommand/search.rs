@@ -67,7 +67,7 @@ impl Search {
 
   #[cfg(unix)]
   fn run_interactive(&self, database: Database) -> Result {
-    if !database.has_executions()? {
+    if !database.has_entries()? {
       return Ok(());
     }
 
@@ -106,15 +106,12 @@ impl Search {
   }
 
   fn run_non_interactive(&self, database: &Database) -> Result {
-    for (_, execution) in database.search(&self.query, self.limit)? {
-      let exit_code = execution
+    for (_, entry) in database.search(&self.query, self.limit)? {
+      let exit_code = entry
         .exit_code
         .map_or_else(String::new, |code| code.to_string());
 
-      println!(
-        "{}\t{}\t{}",
-        execution.timestamp_ns, exit_code, execution.command
-      );
+      println!("{}\t{}\t{}", entry.timestamp_ns, exit_code, entry.command);
     }
 
     Ok(())

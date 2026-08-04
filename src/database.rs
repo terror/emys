@@ -75,9 +75,9 @@ impl Database {
 
     let transaction = self.connection.unchecked_transaction()?;
 
-    transaction.execute("DELETE FROM commands", [])?;
+    transaction.execute("DELETE FROM recency", [])?;
     transaction.execute("DELETE FROM import_sources", [])?;
-    transaction.execute("DELETE FROM executions", [])?;
+    transaction.execute("DELETE FROM entries", [])?;
 
     transaction.commit()?;
 
@@ -112,8 +112,8 @@ impl Database {
 
     let mut statement = self.connection.prepare(
       "SELECT command
-       FROM commands
-       ORDER BY timestamp_ns DESC, execution_id DESC
+       FROM recency
+       ORDER BY timestamp_ns DESC, entry_id DESC
        LIMIT ?1",
     )?;
 
@@ -131,12 +131,10 @@ impl Database {
   }
 
   #[cfg(unix)]
-  pub(crate) fn has_executions(&self) -> Result<bool> {
+  pub(crate) fn has_entries(&self) -> Result<bool> {
     self
       .connection
-      .query_row("SELECT EXISTS(SELECT 1 FROM executions)", [], |row| {
-        row.get(0)
-      })
+      .query_row("SELECT EXISTS(SELECT 1 FROM entries)", [], |row| row.get(0))
       .map_err(Into::into)
   }
 
@@ -173,7 +171,7 @@ impl Database {
 
     let previous = {
       let mut statement = transaction.prepare(
-        "SELECT fingerprint, execution_id
+        "SELECT fingerprint, entry_id
          FROM source_records
          WHERE source_id = ?1
          ORDER BY position",
@@ -190,7 +188,7 @@ impl Database {
 
     let inserted = {
       let mut statement = transaction.prepare(
-        "INSERT INTO executions (
+        "INSERT INTO entries (
           id,
           command,
           timestamp_ns,
@@ -222,23 +220,23 @@ impl Database {
 
         let id = identifier.get_or_insert_with(|| Uuid::new_v4().to_string());
 
-        let directory = record.execution.directory()?;
+        let directory = record.entry.directory()?;
 
         let changed = statement.execute(params![
           id.as_str(),
-          record.execution.command,
-          record.execution.timestamp_ns,
-          record.execution.duration_ns,
-          record.execution.exit_code,
+          record.entry.command,
+          record.entry.timestamp_ns,
+          record.entry.duration_ns,
+          record.entry.exit_code,
           directory,
-          record.execution.session,
-          record.execution.hostname,
-          record.execution.shell,
+          record.entry.session,
+          record.entry.hostname,
+          record.entry.shell,
           new,
         ])?;
 
         if new && changed == 0 {
-          bail!("generated duplicate execution ID `{id}`");
+          bail!("generated duplicate entry ID `{id}`");
         }
 
         inserted += usize::from(new);
@@ -263,7 +261,7 @@ impl Database {
            source_id,
            position,
            fingerprint,
-           execution_id
+           entry_id
          ) VALUES (?1, ?2, ?3, ?4)",
       )?;
 
@@ -279,12 +277,12 @@ impl Database {
       }
     }
 
-    transaction.execute("DELETE FROM commands", [])?;
+    transaction.execute("DELETE FROM recency", [])?;
 
     transaction.execute(
-      "INSERT OR IGNORE INTO commands (command, timestamp_ns, execution_id)
+      "INSERT OR IGNORE INTO recency (command, timestamp_ns, entry_id)
        SELECT command, timestamp_ns, id
-       FROM executions
+       FROM entries
        ORDER BY timestamp_ns DESC, id DESC",
       [],
     )?;
@@ -294,10 +292,10 @@ impl Database {
     Ok(inserted)
   }
 
-  pub(crate) fn insert(&self, execution: &Execution) -> Result<Uuid> {
+  pub(crate) fn insert(&self, entry: &Entry) -> Result<Uuid> {
     let id = Uuid::new_v4();
 
-    let directory = execution.directory()?;
+    let directory = entry.directory()?;
 
     let transaction = Transaction::new_unchecked(
       &self.connection,
@@ -305,7 +303,7 @@ impl Database {
     )?;
 
     transaction.execute(
-      "INSERT INTO executions (
+      "INSERT INTO entries (
         id,
         command,
         timestamp_ns,
@@ -318,29 +316,29 @@ impl Database {
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
       params![
         id.to_string(),
-        execution.command,
-        execution.timestamp_ns,
-        execution.duration_ns,
-        execution.exit_code,
+        entry.command,
+        entry.timestamp_ns,
+        entry.duration_ns,
+        entry.exit_code,
         directory,
-        execution.session,
-        execution.hostname,
-        execution.shell,
+        entry.session,
+        entry.hostname,
+        entry.shell,
       ],
     )?;
 
     transaction.execute(
-      "INSERT INTO commands (command, timestamp_ns, execution_id)
+      "INSERT INTO recency (command, timestamp_ns, entry_id)
        VALUES (?1, ?2, ?3)
        ON CONFLICT (command) DO UPDATE SET
          timestamp_ns = excluded.timestamp_ns,
-         execution_id = excluded.execution_id
-       WHERE excluded.timestamp_ns > commands.timestamp_ns
+         entry_id = excluded.entry_id
+       WHERE excluded.timestamp_ns > recency.timestamp_ns
          OR (
-           excluded.timestamp_ns = commands.timestamp_ns
-           AND excluded.execution_id > commands.execution_id
+           excluded.timestamp_ns = recency.timestamp_ns
+           AND excluded.entry_id > recency.entry_id
          )",
-      params![execution.command, execution.timestamp_ns, id.to_string()],
+      params![entry.command, entry.timestamp_ns, id.to_string()],
     )?;
 
     transaction.commit()?;
@@ -352,9 +350,9 @@ impl Database {
     Self::try_from(Connection::open(path)?)
   }
 
-  pub(crate) fn recent(&self, limit: usize) -> Result<Vec<(Uuid, Execution)>> {
+  pub(crate) fn recent(&self, limit: usize) -> Result<Vec<(Uuid, Entry)>> {
     let limit = i64::try_from(limit)
-      .context("execution limit exceeds SQLite integer range")?;
+      .context("entry limit exceeds SQLite integer range")?;
 
     let mut statement = self.connection.prepare(
       "SELECT
@@ -367,7 +365,7 @@ impl Database {
         session,
         hostname,
         shell
-      FROM executions
+      FROM entries
       ORDER BY timestamp_ns DESC, id DESC
       LIMIT ?1",
     )?;
@@ -375,7 +373,7 @@ impl Database {
     let rows = statement.query_map([limit], |row| {
       Ok((
         row.get::<_, String>(0)?,
-        Execution {
+        Entry {
           command: row.get(1)?,
           timestamp_ns: row.get(2)?,
           duration_ns: row.get(3)?,
@@ -390,12 +388,12 @@ impl Database {
 
     rows
       .map(|row| {
-        let (id, execution) = row?;
+        let (id, entry) = row?;
 
         let id = Uuid::parse_str(&id)
-          .with_context(|| format!("invalid execution ID `{id}`"))?;
+          .with_context(|| format!("invalid entry ID `{id}`"))?;
 
-        Ok((id, execution))
+        Ok((id, entry))
       })
       .collect()
   }
@@ -484,9 +482,9 @@ impl Database {
     &self,
     query: &str,
     limit: usize,
-  ) -> Result<Vec<(Uuid, Execution)>> {
+  ) -> Result<Vec<(Uuid, Entry)>> {
     let limit = i64::try_from(limit)
-      .context("execution limit exceeds SQLite integer range")?;
+      .context("entry limit exceeds SQLite integer range")?;
 
     let mut statement = self.connection.prepare(
       "WITH matches AS (
@@ -504,7 +502,7 @@ impl Database {
             PARTITION BY command
             ORDER BY timestamp_ns DESC, id DESC
           ) AS command_rank
-        FROM executions
+        FROM entries
         WHERE INSTR(LOWER(command), LOWER(?1)) > 0
       )
       SELECT
@@ -526,7 +524,7 @@ impl Database {
     let rows = statement.query_map(params![query, limit], |row| {
       Ok((
         row.get::<_, String>(0)?,
-        Execution {
+        Entry {
           command: row.get(1)?,
           timestamp_ns: row.get(2)?,
           duration_ns: row.get(3)?,
@@ -541,12 +539,12 @@ impl Database {
 
     rows
       .map(|row| {
-        let (id, execution) = row?;
+        let (id, entry) = row?;
 
         let id = Uuid::parse_str(&id)
-          .with_context(|| format!("invalid execution ID `{id}`"))?;
+          .with_context(|| format!("invalid entry ID `{id}`"))?;
 
-        Ok((id, execution))
+        Ok((id, entry))
       })
       .collect()
   }
@@ -635,7 +633,7 @@ mod tests {
   };
 
   #[test]
-  fn backup_copies_executions_while_source_remains_open() {
+  fn backup_copies_entries_while_source_remains_open() {
     let root = tempfile::tempdir().unwrap();
 
     let (source, destination) = (
@@ -648,7 +646,7 @@ mod tests {
     let database = Database::open(&source).unwrap();
 
     let first = database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "foo".into(),
         timestamp_ns: 1,
         ..Default::default()
@@ -656,7 +654,7 @@ mod tests {
       .unwrap();
 
     let second = database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "bar".into(),
         timestamp_ns: 2,
         ..Default::default()
@@ -666,7 +664,7 @@ mod tests {
     database.backup(&destination, false).unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "baz".into(),
         timestamp_ns: 3,
         ..Default::default()
@@ -689,7 +687,7 @@ mod tests {
         vec![
           (
             second,
-            Execution {
+            Entry {
               command: "bar".into(),
               timestamp_ns: 2,
               ..Default::default()
@@ -697,7 +695,7 @@ mod tests {
           ),
           (
             first,
-            Execution {
+            Entry {
               command: "foo".into(),
               timestamp_ns: 1,
               ..Default::default()
@@ -724,7 +722,7 @@ mod tests {
     let database = Database::open(source).unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "foo".into(),
         ..Default::default()
       })
@@ -733,7 +731,7 @@ mod tests {
     database.backup(&destination, false).unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "bar".into(),
         ..Default::default()
       })
@@ -772,7 +770,7 @@ mod tests {
         "foo",
         Path::new("bar"),
         [Ok(Record {
-          execution: Execution {
+          entry: Entry {
             command: "foo".into(),
             ..Default::default()
           },
@@ -789,8 +787,8 @@ mod tests {
         .connection()
         .query_row(
           "SELECT
-            (SELECT COUNT(*) FROM commands),
-            (SELECT COUNT(*) FROM executions),
+            (SELECT COUNT(*) FROM recency),
+            (SELECT COUNT(*) FROM entries),
             (SELECT COUNT(*) FROM import_sources),
             (SELECT COUNT(*) FROM source_records)",
           [],
@@ -864,7 +862,7 @@ mod tests {
     let database = Database::open(&path).unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "foo".into(),
         ..Default::default()
       })
@@ -876,7 +874,7 @@ mod tests {
 
     assert_eq!(
       reader
-        .query_row("SELECT command FROM executions", [], |row| {
+        .query_row("SELECT command FROM entries", [], |row| {
           row.get::<_, String>(0)
         })
         .unwrap(),
@@ -899,7 +897,7 @@ mod tests {
 
     for (command, timestamp_ns) in [("foo", 1), ("bar", 2), ("foo", 3)] {
       database
-        .insert(&Execution {
+        .insert(&Entry {
           command: command.into(),
           timestamp_ns,
           ..Default::default()
@@ -944,7 +942,7 @@ mod tests {
 
     let records = [
       Record {
-        execution: Execution {
+        entry: Entry {
           command: "foo".into(),
           timestamp_ns: 1,
           ..Default::default()
@@ -952,7 +950,7 @@ mod tests {
         fingerprint: b"foo".to_vec(),
       },
       Record {
-        execution: Execution {
+        entry: Entry {
           command: "bar".into(),
           timestamp_ns: 2,
           ..Default::default()
@@ -994,7 +992,7 @@ mod tests {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    let first = Execution {
+    let first = Entry {
       command: "foo".into(),
       timestamp_ns: 1,
       duration_ns: Some(2),
@@ -1005,7 +1003,7 @@ mod tests {
       shell: Some("zsh".into()),
     };
 
-    let second = Execution {
+    let second = Entry {
       command: "foo".into(),
       timestamp_ns: 4,
       duration_ns: Some(5),
@@ -1023,11 +1021,11 @@ mod tests {
           Path::new("foo"),
           [
             Ok(Record {
-              execution: first.clone(),
+              entry: first.clone(),
               fingerprint: b"foo".to_vec(),
             }),
             Ok(Record {
-              execution: second.clone(),
+              entry: second.clone(),
               fingerprint: b"bar".to_vec(),
             }),
           ],
@@ -1043,13 +1041,13 @@ mod tests {
           .recent(20)
           .unwrap()
           .into_iter()
-          .map(|(_, execution)| execution)
+          .map(|(_, entry)| entry)
           .collect::<Vec<_>>(),
         database
           .search("foo", 20)
           .unwrap()
           .into_iter()
-          .map(|(_, execution)| execution)
+          .map(|(_, entry)| entry)
           .collect::<Vec<_>>(),
       ),
       (vec![second.clone(), first], vec![second]),
@@ -1068,7 +1066,7 @@ mod tests {
           Path::new("foo"),
           [
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "foo".into(),
                 timestamp_ns: 1,
                 ..Default::default()
@@ -1076,7 +1074,7 @@ mod tests {
               fingerprint: b"foo".to_vec(),
             }),
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "bar".into(),
                 timestamp_ns: 2,
                 ..Default::default()
@@ -1094,7 +1092,7 @@ mod tests {
       .recent(20)
       .unwrap()
       .into_iter()
-      .map(|(id, execution)| (execution.command, (id, execution.timestamp_ns)))
+      .map(|(id, entry)| (entry.command, (id, entry.timestamp_ns)))
       .collect::<HashMap<_, _>>();
 
     assert_eq!(
@@ -1104,7 +1102,7 @@ mod tests {
           Path::new("foo"),
           [
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "baz".into(),
                 timestamp_ns: 1,
                 ..Default::default()
@@ -1112,7 +1110,7 @@ mod tests {
               fingerprint: b"baz".to_vec(),
             }),
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "foo".into(),
                 timestamp_ns: 2,
                 ..Default::default()
@@ -1120,7 +1118,7 @@ mod tests {
               fingerprint: b"foo".to_vec(),
             }),
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "bar".into(),
                 timestamp_ns: 3,
                 ..Default::default()
@@ -1138,7 +1136,7 @@ mod tests {
       .recent(20)
       .unwrap()
       .into_iter()
-      .map(|(id, execution)| (execution.command, (id, execution.timestamp_ns)))
+      .map(|(id, entry)| (entry.command, (id, entry.timestamp_ns)))
       .collect::<HashMap<_, _>>();
 
     assert_eq!(
@@ -1167,7 +1165,7 @@ mod tests {
           Path::new("foo"),
           records.map(|(command, timestamp_ns, fingerprint)| {
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: command.into(),
                 timestamp_ns,
                 ..Default::default()
@@ -1184,8 +1182,8 @@ mod tests {
       .connection()
       .prepare(
         "SELECT command, timestamp_ns
-         FROM commands
-         ORDER BY timestamp_ns DESC, execution_id DESC",
+         FROM recency
+         ORDER BY timestamp_ns DESC, entry_id DESC",
       )
       .unwrap()
       .query_map([], |row| {
@@ -1210,7 +1208,7 @@ mod tests {
           Path::new("foo"),
           [
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "foo".into(),
                 timestamp_ns: 1,
                 ..Default::default()
@@ -1218,7 +1216,7 @@ mod tests {
               fingerprint: b"foo".to_vec(),
             }),
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "bar".into(),
                 timestamp_ns: 2,
                 ..Default::default()
@@ -1238,7 +1236,7 @@ mod tests {
           "test",
           Path::new("foo"),
           [Ok(Record {
-            execution: Execution {
+            entry: Entry {
               command: "bar".into(),
               timestamp_ns: 1,
               ..Default::default()
@@ -1260,7 +1258,7 @@ mod tests {
           Path::new("foo"),
           [
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "bar".into(),
                 timestamp_ns: 1,
                 ..Default::default()
@@ -1268,7 +1266,7 @@ mod tests {
               fingerprint: b"bar".to_vec(),
             }),
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "bar".into(),
                 timestamp_ns: 2,
                 ..Default::default()
@@ -1296,14 +1294,14 @@ mod tests {
         Path::new("foo"),
         [
           Ok(Record {
-            execution: Execution {
+            entry: Entry {
               command: "foo".into(),
               ..Default::default()
             },
             fingerprint: b"foo".to_vec(),
           }),
           Ok(Record {
-            execution: Execution {
+            entry: Entry {
               command: "bar".into(),
               duration_ns: Some(-1),
               ..Default::default()
@@ -1345,7 +1343,7 @@ mod tests {
         Path::new("foo"),
         [
           Ok(Record {
-            execution: Execution {
+            entry: Entry {
               command: "foo".into(),
               ..Default::default()
             },
@@ -1377,7 +1375,7 @@ mod tests {
             database.reserve_source("test", b"foo").unwrap();
 
             Ok(Record {
-              execution: Execution {
+              entry: Entry {
                 command: "foo".into(),
                 ..Default::default()
               },
@@ -1394,11 +1392,11 @@ mod tests {
   }
 
   #[test]
-  fn insert_stores_every_execution() {
+  fn insert_stores_every_entry() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    let execution = Execution {
+    let entry = Entry {
       command: "foo".into(),
       timestamp_ns: 1,
       duration_ns: Some(2),
@@ -1410,13 +1408,13 @@ mod tests {
     };
 
     let (first, second) = (
-      database.insert(&execution).unwrap(),
-      database.insert(&execution).unwrap(),
+      database.insert(&entry).unwrap(),
+      database.insert(&entry).unwrap(),
     );
 
     assert_ne!(first, second);
 
-    let mut expected = vec![(first, execution.clone()), (second, execution)];
+    let mut expected = vec![(first, entry.clone()), (second, entry)];
 
     expected.sort_by(|(left, _), (right, _)| right.cmp(left));
 
@@ -1428,13 +1426,13 @@ mod tests {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    let execution = Execution {
+    let entry = Entry {
       command: "foo".into(),
       duration_ns: Some(-1),
       ..Default::default()
     };
 
-    let error = database.insert(&execution).unwrap_err();
+    let error = database.insert(&entry).unwrap_err();
 
     let error = error.downcast_ref::<rusqlite::Error>().unwrap();
 
@@ -1464,12 +1462,12 @@ mod tests {
   }
 
   #[test]
-  fn recent_orders_and_limits_executions() {
+  fn recent_orders_and_limits_entries() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "foo".into(),
         timestamp_ns: 1,
         ..Default::default()
@@ -1477,7 +1475,7 @@ mod tests {
       .unwrap();
 
     let id = database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "bar".into(),
         timestamp_ns: 2,
         ..Default::default()
@@ -1488,7 +1486,7 @@ mod tests {
       database.recent(1).unwrap(),
       vec![(
         id,
-        Execution {
+        Entry {
           command: "bar".into(),
           timestamp_ns: 2,
           ..Default::default()
@@ -1511,7 +1509,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "execution limit exceeds SQLite integer range",
+      "entry limit exceeds SQLite integer range",
     );
   }
 
@@ -1537,7 +1535,7 @@ mod tests {
       .cloned()
       .chain((0..300).map(|_| next()))
       .map(|fingerprint| Record {
-        execution: Execution::default(),
+        entry: Entry::default(),
         fingerprint,
       })
       .collect::<Vec<_>>();
@@ -1553,12 +1551,12 @@ mod tests {
   }
 
   #[test]
-  fn search_filters_orders_and_collapses_executions() {
+  fn search_filters_orders_and_collapses_entries() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "git status".into(),
         timestamp_ns: 1,
         exit_code: Some(1),
@@ -1567,7 +1565,7 @@ mod tests {
       .unwrap();
 
     let uppercase = database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "GIT log".into(),
         timestamp_ns: 2,
         ..Default::default()
@@ -1575,7 +1573,7 @@ mod tests {
       .unwrap();
 
     let newest = database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "git status".into(),
         timestamp_ns: 3,
         exit_code: Some(0),
@@ -1585,7 +1583,7 @@ mod tests {
       .unwrap();
 
     database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "cargo test".into(),
         timestamp_ns: 4,
         ..Default::default()
@@ -1593,7 +1591,7 @@ mod tests {
       .unwrap();
 
     let literal = database
-      .insert(&Execution {
+      .insert(&Entry {
         command: "echo %".into(),
         timestamp_ns: 5,
         ..Default::default()
@@ -1605,7 +1603,7 @@ mod tests {
       vec![
         (
           newest,
-          Execution {
+          Entry {
             command: "git status".into(),
             timestamp_ns: 3,
             exit_code: Some(0),
@@ -1615,7 +1613,7 @@ mod tests {
         ),
         (
           uppercase,
-          Execution {
+          Entry {
             command: "GIT log".into(),
             timestamp_ns: 2,
             ..Default::default()
@@ -1630,7 +1628,7 @@ mod tests {
       database.search("%", 20).unwrap(),
       vec![(
         literal,
-        Execution {
+        Entry {
           command: "echo %".into(),
           timestamp_ns: 5,
           ..Default::default()
@@ -1643,7 +1641,7 @@ mod tests {
         .search("", 1)
         .unwrap()
         .into_iter()
-        .map(|(_, execution)| execution.command)
+        .map(|(_, entry)| entry.command)
         .collect::<Vec<_>>(),
       vec!["echo %"],
     );
@@ -1661,7 +1659,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "execution limit exceeds SQLite integer range",
+      "entry limit exceeds SQLite integer range",
     );
   }
 

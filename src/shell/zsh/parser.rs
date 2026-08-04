@@ -125,7 +125,7 @@ impl Parser {
       let duration_ns = nanoseconds(duration, "duration")?;
 
       Ok(Some(Record::new(
-        Execution {
+        Entry {
           command: command.into(),
           duration_ns: Some(duration_ns),
           timestamp_ns,
@@ -147,7 +147,7 @@ impl Parser {
       let components = vec![command.as_bytes().to_vec()];
 
       Ok(Some(Record::new(
-        Execution {
+        Entry {
           command,
           timestamp_ns: self.plain_timestamp_ns,
           ..Default::default()
@@ -222,7 +222,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Execution {
+          Entry {
             command: ": foo".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -231,7 +231,7 @@ mod tests {
           [b": foo".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: ": 1:x;bar".into(),
             timestamp_ns: 2,
             ..Default::default()
@@ -240,7 +240,7 @@ mod tests {
           [b": 1:x;bar".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: ": 1:2bar;baz".into(),
             timestamp_ns: 3,
             ..Default::default()
@@ -294,7 +294,7 @@ mod tests {
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       vec![Record::new(
-        Execution {
+        Entry {
           command: "foo".into(),
           duration_ns: Some(2_000_000_000),
           timestamp_ns: 1_000_000_000,
@@ -330,7 +330,7 @@ mod tests {
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       vec![Record::new(
-        Execution {
+        Entry {
           command: "\u{FFFD}".into(),
           timestamp_ns: 1,
           ..Default::default()
@@ -365,7 +365,7 @@ mod tests {
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       vec![Record::new(
-        Execution {
+        Entry {
           command: "foo \u{1F600}".into(),
           timestamp_ns: 1,
           ..Default::default()
@@ -394,7 +394,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Execution {
+          Entry {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -403,7 +403,7 @@ mod tests {
           [b"foo".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "bar".into(),
             duration_ns: Some(3_000_000_000),
             timestamp_ns: 2_000_000_000,
@@ -417,7 +417,7 @@ mod tests {
           ],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "baz".into(),
             timestamp_ns: 2,
             ..Default::default()
@@ -448,7 +448,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Execution {
+          Entry {
             command: "foo \nbar".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -457,7 +457,7 @@ mod tests {
           [b"foo \nbar".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "baz \nqux".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
@@ -513,7 +513,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Execution {
+          Entry {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -522,7 +522,7 @@ mod tests {
           [b"foo".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "bar".into(),
             timestamp_ns: 2,
             ..Default::default()
@@ -553,7 +553,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Execution {
+          Entry {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -562,7 +562,7 @@ mod tests {
           [b"foo".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "foo".into(),
             timestamp_ns: 2,
             ..Default::default()
@@ -571,7 +571,7 @@ mod tests {
           [b"foo".to_vec()],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
@@ -585,7 +585,7 @@ mod tests {
           ],
         ),
         Record::new(
-          Execution {
+          Entry {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,

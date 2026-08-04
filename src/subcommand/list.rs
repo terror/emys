@@ -8,15 +8,15 @@ pub(crate) struct List {
 
 impl List {
   pub(crate) fn run(self, database: &Database) -> Result {
-    for (_, execution) in database.recent(self.limit)? {
+    for (_, entry) in database.recent(self.limit)? {
       println!(
         "{}\t{}\t{}",
-        execution.timestamp_ns,
-        execution
+        entry.timestamp_ns,
+        entry
           .exit_code
           .map(|exit_code| exit_code.to_string())
           .unwrap_or_default(),
-        execution.command,
+        entry.command,
       );
     }
 

@@ -3,7 +3,7 @@ use {
   arguments::Arguments,
   clap::{Parser as Clap, ValueEnum},
   database::Database,
-  execution::Execution,
+  entry::Entry,
   imara_diff::{Algorithm, Diff, InternedInput},
   indicatif::{ProgressBar, ProgressStyle},
   line::Line,
@@ -43,7 +43,7 @@ use {
 
 mod arguments;
 mod database;
-mod execution;
+mod entry;
 mod line;
 mod lines;
 mod parser;
