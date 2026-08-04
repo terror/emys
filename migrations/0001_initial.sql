@@ -11,7 +11,7 @@ CREATE TABLE executions (
 ) STRICT;
 
 CREATE INDEX executions_timestamp
-ON executions (timestamp_ns DESC);
+ON executions (timestamp_ns DESC, id DESC);
 
 CREATE INDEX executions_directory_timestamp
 ON executions (directory, timestamp_ns DESC);

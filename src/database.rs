@@ -5,10 +5,7 @@ pub(crate) struct Database {
 }
 
 impl Database {
-  const MIGRATIONS: &[&str] = &[
-    include_str!("../migrations/0001_initial.sql"),
-    include_str!("../migrations/0002_execution_timestamp_id.sql"),
-  ];
+  const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
 
   pub(crate) fn backup(&self, path: &Path, force: bool) -> Result {
@@ -992,7 +989,7 @@ mod tests {
   fn unsupported_schema_is_rejected() {
     let connection = Connection::open_in_memory().unwrap();
 
-    connection.execute_batch("PRAGMA user_version = 3").unwrap();
+    connection.execute_batch("PRAGMA user_version = 2").unwrap();
 
     let Err(error) = Database::try_from(connection) else {
       panic!("expected unsupported schema to fail")
@@ -1000,7 +997,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "database schema version 3 is unsupported; expected 2",
+      "database schema version 2 is unsupported; expected 1",
     );
   }
 }
