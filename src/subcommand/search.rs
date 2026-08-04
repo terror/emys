@@ -12,17 +12,13 @@ impl Search {
   const BATCH_SIZE: usize = 256;
   const CHANNEL_CAPACITY: usize = 8;
 
-  fn load_items(
-    database: &Database,
-    sender: &SkimItemSender,
-    limit: usize,
-  ) -> Result {
+  fn load_items(self, database: &Database, sender: &SkimItemSender) -> Result {
     let mut batch: Vec<Arc<dyn SkimItem>> =
       Vec::with_capacity(Self::BATCH_SIZE);
 
     let mut flush_threshold = 1;
 
-    database.for_each_command(limit, |command| {
+    database.for_each_command(self.limit, |command| {
       batch.push(Arc::new(command));
 
       if batch.len() < flush_threshold {
@@ -60,10 +56,7 @@ impl Search {
 
     let (sender, receiver) = bounded(Self::CHANNEL_CAPACITY);
 
-    let limit = self.limit;
-
-    let loader =
-      thread::spawn(move || Self::load_items(&database, &sender, limit));
+    let loader = thread::spawn(move || self.load_items(&database, &sender));
 
     let output = Skim::run_with(options, Some(receiver));
 
