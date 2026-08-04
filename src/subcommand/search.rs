@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clap)]
 pub(crate) struct Search {
   #[arg(short, long)]
   interactive: bool,

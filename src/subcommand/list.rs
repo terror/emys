@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clap)]
 pub(crate) struct List {
   #[arg(short, long, default_value_t = 50)]
   limit: usize,

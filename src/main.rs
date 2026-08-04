@@ -1,18 +1,26 @@
 use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
-  clap::{Parser, ValueEnum},
+  clap::{Parser as Clap, ValueEnum},
   database::Database,
+  entries::Entries,
   execution::Execution,
   identity::Identity,
   importer::{Importer, Zsh},
+  indicatif::{ProgressBar, ProgressStyle},
+  line::Line,
+  lines::Lines,
   parsed_execution::ParsedExecution,
+  parser::Parser,
+  progress::Progress,
+  progress_entry::ProgressEntry,
   rusqlite::{Connection, MAIN_DB, params},
   shell::Shell,
   std::{
     collections::HashMap,
     env, fs,
-    iter::once,
+    io::{self, BufRead, BufReader, IsTerminal, Read},
+    mem,
     path::{Path, PathBuf},
     process, str,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -29,7 +37,6 @@ use {
   },
   std::{
     collections::HashSet,
-    mem,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     sync::Arc,
     thread,
@@ -39,10 +46,16 @@ use {
 
 mod arguments;
 mod database;
+mod entries;
 mod execution;
 mod identity;
 mod importer;
+mod line;
+mod lines;
 mod parsed_execution;
+mod parser;
+mod progress;
+mod progress_entry;
 mod shell;
 mod subcommand;
 

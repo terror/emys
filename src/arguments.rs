@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clap)]
 #[command(version, about)]
 pub(crate) struct Arguments {
   #[clap(subcommand)]

@@ -119,7 +119,11 @@ impl Database {
       .map_err(Into::into)
   }
 
-  pub(crate) fn import(&self, records: &[(Uuid, Execution)]) -> Result<usize> {
+  pub(crate) fn import(
+    &self,
+    records: impl IntoIterator<Item = Result<(Uuid, Execution)>>,
+    mut progress: impl FnMut(ProgressEntry),
+  ) -> Result<usize> {
     let transaction = self.connection.unchecked_transaction()?;
 
     let inserted = {
@@ -140,7 +144,9 @@ impl Database {
 
       let mut inserted = 0;
 
-      for (id, execution) in records {
+      for (index, record) in records.into_iter().enumerate() {
+        let (id, execution) = record?;
+
         let directory = execution.directory()?;
 
         inserted += statement.execute(params![
@@ -154,6 +160,11 @@ impl Database {
           execution.hostname,
           execution.shell,
         ])?;
+
+        progress(ProgressEntry {
+          inserted,
+          processed: index + 1,
+        });
       }
 
       inserted
@@ -615,8 +626,12 @@ mod tests {
 
     assert_eq!(
       (
-        database.import(&records).unwrap(),
-        database.import(&records).unwrap(),
+        database
+          .import(records.iter().cloned().map(Ok), |_| {})
+          .unwrap(),
+        database
+          .import(records.iter().cloned().map(Ok), |_| {})
+          .unwrap(),
         database.recent(20).unwrap(),
       ),
       (2, 0, records.into_iter().rev().collect()),
@@ -657,7 +672,9 @@ mod tests {
     );
 
     assert_eq!(
-      database.import(&[first.clone(), second.clone()]).unwrap(),
+      database
+        .import([Ok(first.clone()), Ok(second.clone())], |_| {})
+        .unwrap(),
       2
     );
 
@@ -676,23 +693,26 @@ mod tests {
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
     let error = database
-      .import(&[
-        (
-          Uuid::from_u128(1),
-          Execution {
-            command: "foo".into(),
-            ..Default::default()
-          },
-        ),
-        (
-          Uuid::from_u128(2),
-          Execution {
-            command: "bar".into(),
-            duration_ns: Some(-1),
-            ..Default::default()
-          },
-        ),
-      ])
+      .import(
+        [
+          Ok((
+            Uuid::from_u128(1),
+            Execution {
+              command: "foo".into(),
+              ..Default::default()
+            },
+          )),
+          Ok((
+            Uuid::from_u128(2),
+            Execution {
+              command: "bar".into(),
+              duration_ns: Some(-1),
+              ..Default::default()
+            },
+          )),
+        ],
+        |_| {},
+      )
       .unwrap_err();
 
     let error = error.downcast_ref::<rusqlite::Error>().unwrap();
@@ -709,6 +729,35 @@ mod tests {
           .into(),
         Vec::new(),
       ),
+    );
+  }
+
+  #[test]
+  fn import_rolls_back_complete_batch_on_iterator_failure() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    let mut progress = Vec::new();
+
+    let error = database
+      .import(
+        [
+          Ok((
+            Uuid::from_u128(1),
+            Execution {
+              command: "foo".into(),
+              ..Default::default()
+            },
+          )),
+          Err(Error::msg("bar")),
+        ],
+        |status| progress.push((status.processed, status.inserted)),
+      )
+      .unwrap_err();
+
+    assert_eq!(
+      (error.to_string(), progress, database.recent(20).unwrap(),),
+      ("bar".into(), vec![(1, 1)], Vec::new()),
     );
   }
 

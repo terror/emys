@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clap)]
 pub(crate) struct Add {
   #[arg(last = true, value_name = "COMMAND")]
   command: String,
