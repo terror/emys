@@ -1,32 +1,7 @@
 use super::*;
 
-const PROGRESS_CHARS: &str = "█▉▊▋▌▍▎▏ ";
-
-const PROGRESS_STYLE: &str = "{spinner:.green} ⟪{elapsed_precise}⟫ \
-  ⟦{wide_bar:.cyan}⟧ {binary_bytes}/{binary_total_bytes} \
-  ⟨{binary_bytes_per_sec}, {eta}⟩ {msg}";
-
 const SPINNER_STYLE: &str = "{spinner:.green} ⟪{elapsed_precise}⟫ \
   {binary_bytes} ⟨{binary_bytes_per_sec}⟩ {msg}";
-
-const TICK_CHARS: &str = concat!(
-  "⠀⠁⠂⠃⠄⠅⠆⠇⡀⡁⡂⡃⡄⡅⡆⡇",
-  "⠈⠉⠊⠋⠌⠍⠎⠏⡈⡉⡊⡋⡌⡍⡎⡏",
-  "⠐⠑⠒⠓⠔⠕⠖⠗⡐⡑⡒⡓⡔⡕⡖⡗",
-  "⠘⠙⠚⠛⠜⠝⠞⠟⡘⡙⡚⡛⡜⡝⡞⡟",
-  "⠠⠡⠢⠣⠤⠥⠦⠧⡠⡡⡢⡣⡤⡥⡦⡧",
-  "⠨⠩⠪⠫⠬⠭⠮⠯⡨⡩⡪⡫⡬⡭⡮⡯",
-  "⠰⠱⠲⠳⠴⠵⠶⠷⡰⡱⡲⡳⡴⡵⡶⡷",
-  "⠸⠹⠺⠻⠼⠽⠾⠿⡸⡹⡺⡻⡼⡽⡾⡿",
-  "⢀⢁⢂⢃⢄⢅⢆⢇⣀⣁⣂⣃⣄⣅⣆⣇",
-  "⢈⢉⢊⢋⢌⢍⢎⢏⣈⣉⣊⣋⣌⣍⣎⣏",
-  "⢐⢑⢒⢓⢔⢕⢖⢗⣐⣑⣒⣓⣔⣕⣖⣗",
-  "⢘⢙⢚⢛⢜⢝⢞⢟⣘⣙⣚⣛⣜⣝⣞⣟",
-  "⢠⢡⢢⢣⢤⢥⢦⢧⣠⣡⣢⣣⣤⣥⣦⣧",
-  "⢨⢩⢪⢫⢬⢭⢮⢯⣨⣩⣪⣫⣬⣭⣮⣯",
-  "⢰⢱⢲⢳⢴⢵⢶⢷⣰⣱⣲⣳⣴⣵⣶⣷",
-  "⢸⢹⢺⢻⢼⢽⢾⢿⣸⣹⣺⣻⣼⣽⣾⣿",
-);
 
 pub(super) struct Progress {
   bar: Option<ProgressBar>,
@@ -42,23 +17,13 @@ impl Progress {
     }
   }
 
-  pub(super) fn new(name: &'static str, length: Option<u64>) -> Result<Self> {
+  pub(super) fn new(name: &'static str) -> Result<Self> {
     let bar = if io::stderr().is_terminal() {
-      let (bar, style) = if let Some(length) = length {
-        (
-          ProgressBar::new(length),
-          ProgressStyle::with_template(PROGRESS_STYLE)?
-            .progress_chars(PROGRESS_CHARS),
-        )
-      } else {
-        (
-          ProgressBar::new_spinner(),
-          ProgressStyle::with_template(SPINNER_STYLE)?,
-        )
-      };
+      let bar = ProgressBar::new_spinner()
+        .with_style(ProgressStyle::with_template(SPINNER_STYLE)?)
+        .with_message(format!("{name}: parsing"));
 
-      bar.set_style(style.tick_chars(TICK_CHARS));
-      bar.set_message(format!("{name}: 0 scanned, 0 new"));
+      bar.enable_steady_tick(Duration::from_millis(50));
 
       Some(bar)
     } else {
@@ -98,7 +63,6 @@ mod tests {
 
   #[test]
   fn styles_are_valid() {
-    ProgressStyle::with_template(PROGRESS_STYLE).unwrap();
     ProgressStyle::with_template(SPINNER_STYLE).unwrap();
   }
 }
