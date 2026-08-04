@@ -1,7 +1,9 @@
 use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
+  candidate::Candidate,
   clap::{Parser as Clap, ValueEnum},
+  command::Command,
   database::Database,
   entry::Entry,
   imara_diff::{Algorithm, Diff, InternedInput},
@@ -10,7 +12,6 @@ use {
   lines::Lines,
   parser::Parser,
   progress::Progress,
-  progress_entry::ProgressEntry,
   ratatui::{
     style::{Color, Modifier},
     text::Span,
@@ -18,8 +19,7 @@ use {
   record::Record,
   records::Records,
   rusqlite::{Connection, MAIN_DB, Transaction, TransactionBehavior, params},
-  search_entry::SearchEntry,
-  search_item::SearchItem,
+  scan::Scan,
   shell::Shell,
   skim::{
     DisplayContext, Skim, SkimItem, SkimItemSender,
@@ -48,17 +48,17 @@ use {
 };
 
 mod arguments;
+mod candidate;
+mod command;
 mod database;
 mod entry;
 mod line;
 mod lines;
 mod parser;
 mod progress;
-mod progress_entry;
 mod record;
 mod records;
-mod search_entry;
-mod search_item;
+mod scan;
 mod shell;
 mod subcommand;
 

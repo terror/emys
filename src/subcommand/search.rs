@@ -26,8 +26,8 @@ impl Search {
     )
     .context("system time exceeds SQLite integer range")?;
 
-    database.for_each_latest_entry(self.limit, |entry| {
-      batch.push(Arc::new(SearchItem::new(entry, now_ns)));
+    database.for_each_command(self.limit, |command| {
+      batch.push(Arc::new(Candidate::new(command, now_ns)));
 
       if batch.len() < flush_threshold {
         return true;

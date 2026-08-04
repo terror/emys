@@ -58,6 +58,8 @@ impl Shell {
     database: &Database,
     path: Option<&Path>,
   ) -> Result {
+    const UPDATE_INTERVAL: usize = 256;
+
     let path = self.history_path(path)?;
 
     let source = fs::canonicalize(&path).with_context(|| {
@@ -78,7 +80,9 @@ impl Shell {
 
     let metadata = file.metadata()?;
 
-    let progress = Progress::new(self.name())?;
+    let name = self.name();
+
+    let progress = Progress::new(format!("{name}: parsing"))?;
 
     let reader: Box<dyn Read> = if metadata.is_file() {
       Box::new(file.take(metadata.len()))
@@ -103,7 +107,12 @@ impl Shell {
     });
 
     let result = database.import(self.format(), &source, records, |status| {
-      progress.update(status);
+      if status.processed.is_multiple_of(UPDATE_INTERVAL) {
+        progress.set_message(format!(
+          "{name}: {} scanned, {} new",
+          status.processed, status.inserted,
+        ));
+      }
     });
 
     progress.finish();

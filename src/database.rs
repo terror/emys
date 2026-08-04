@@ -101,10 +101,10 @@ impl Database {
     &self.connection
   }
 
-  pub(crate) fn for_each_latest_entry(
+  pub(crate) fn for_each_command(
     &self,
     limit: Option<usize>,
-    mut callback: impl FnMut(SearchEntry) -> bool,
+    mut callback: impl FnMut(Command) -> bool,
   ) -> Result {
     let limit = limit
       .map(i64::try_from)
@@ -139,14 +139,14 @@ impl Database {
     };
 
     while let Some(row) = rows.next()? {
-      let entry = SearchEntry {
-        command: row.get(0)?,
+      let command = Command {
         timestamp_ns: row.get(1)?,
         exit_code: row.get(2)?,
         directory: row.get::<_, Option<String>>(3)?.map(PathBuf::from),
+        text: row.get(0)?,
       };
 
-      if !callback(entry) {
+      if !callback(command) {
         break;
       }
     }
@@ -166,7 +166,7 @@ impl Database {
     format: &str,
     path: &Path,
     records: impl IntoIterator<Item = Result<Record>>,
-    mut progress: impl FnMut(ProgressEntry),
+    mut progress: impl FnMut(Scan),
   ) -> Result<usize> {
     let path = path.as_os_str().as_encoded_bytes();
 
@@ -264,7 +264,7 @@ impl Database {
 
         inserted += usize::from(new);
 
-        progress(ProgressEntry {
+        progress(Scan {
           inserted,
           processed: index + 1,
         });
@@ -861,7 +861,7 @@ mod tests {
   }
 
   #[test]
-  fn for_each_latest_entry_orders_and_limits_unique_commands() {
+  fn for_each_command_orders_and_limits_unique_commands() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
@@ -881,53 +881,53 @@ mod tests {
         .unwrap();
     }
 
-    let mut entries = Vec::new();
+    let mut commands = Vec::new();
 
     database
-      .for_each_latest_entry(None, |entry| {
-        entries.push(entry);
+      .for_each_command(None, |command| {
+        commands.push(command);
         true
       })
       .unwrap();
 
     assert_eq!(
-      entries,
+      commands,
       [
-        SearchEntry {
-          command: "foo".into(),
+        Command {
           directory: Some("/baz".into()),
           exit_code: Some(3),
+          text: "foo".into(),
           timestamp_ns: 3,
         },
-        SearchEntry {
-          command: "bar".into(),
+        Command {
           directory: Some("/bar".into()),
           exit_code: Some(2),
+          text: "bar".into(),
           timestamp_ns: 2,
         },
       ],
     );
 
     database
-      .for_each_latest_entry(Some(1), |entry| {
-        entries.push(entry);
+      .for_each_command(Some(1), |command| {
+        commands.push(command);
         true
       })
       .unwrap();
 
-    assert_eq!(entries.len(), 3);
-    assert_eq!(entries[2].command, "foo");
-    assert_eq!(entries[2].directory, Some("/baz".into()));
-    assert_eq!(entries[2].exit_code, Some(3));
+    assert_eq!(commands.len(), 3);
+    assert_eq!(commands[2].text, "foo");
+    assert_eq!(commands[2].directory, Some("/baz".into()));
+    assert_eq!(commands[2].exit_code, Some(3));
 
     database
-      .for_each_latest_entry(Some(0), |entry| {
-        entries.push(entry);
+      .for_each_command(Some(0), |command| {
+        commands.push(command);
         true
       })
       .unwrap();
 
-    assert_eq!(entries.len(), 3);
+    assert_eq!(commands.len(), 3);
 
     assert!(
       database

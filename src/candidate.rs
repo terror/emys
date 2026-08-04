@@ -1,19 +1,19 @@
 use super::*;
 
-pub(crate) struct SearchItem {
-  entry: SearchEntry,
+pub(crate) struct Candidate {
+  command: Command,
   now_ns: i64,
 }
 
-impl SearchItem {
+impl Candidate {
   const DIRECTORY_WIDTH: usize = 9;
   const EARLIEST_TIMESTAMP_NS: i64 = 1_000_000_000_000_000_000;
   const EXIT_CODE_WIDTH: usize = 5;
 
   fn command(&self) -> String {
     self
-      .entry
       .command
+      .text
       .chars()
       .map(|character| {
         if character.is_control() {
@@ -27,7 +27,7 @@ impl SearchItem {
 
   fn directory(&self) -> String {
     self
-      .entry
+      .command
       .directory
       .as_deref()
       .map(|directory| {
@@ -76,15 +76,15 @@ impl SearchItem {
 
   fn exit_code(&self) -> String {
     self
-      .entry
+      .command
       .exit_code
       .filter(|code| *code != 0)
       .map(|code| format!("[{code}]"))
       .unwrap_or_default()
   }
 
-  pub(crate) fn new(entry: SearchEntry, now_ns: i64) -> Self {
-    Self { entry, now_ns }
+  pub(crate) fn new(command: Command, now_ns: i64) -> Self {
+    Self { command, now_ns }
   }
 
   fn relative_age(&self) -> String {
@@ -95,11 +95,11 @@ impl SearchItem {
     const SECOND: i64 = 1_000_000_000;
     const YEAR: i64 = 365 * DAY;
 
-    if self.entry.timestamp_ns < Self::EARLIEST_TIMESTAMP_NS {
+    if self.command.timestamp_ns < Self::EARLIEST_TIMESTAMP_NS {
       return String::new();
     }
 
-    let age = self.now_ns.saturating_sub(self.entry.timestamp_ns).max(0);
+    let age = self.now_ns.saturating_sub(self.command.timestamp_ns).max(0);
 
     if age < MINUTE {
       format!("{}s", age / SECOND)
@@ -129,7 +129,7 @@ impl SearchItem {
   }
 }
 
-impl SkimItem for SearchItem {
+impl SkimItem for Candidate {
   fn display(&self, context: DisplayContext) -> ratatui::text::Line<'_> {
     let metadata = context
       .base_style
@@ -158,11 +158,11 @@ impl SkimItem for SearchItem {
   }
 
   fn output(&self) -> Cow<'_, str> {
-    Cow::Borrowed(&self.entry.command)
+    Cow::Borrowed(&self.command.text)
   }
 
   fn text(&self) -> Cow<'_, str> {
-    Cow::Borrowed(&self.entry.command)
+    Cow::Borrowed(&self.command.text)
   }
 }
 
@@ -172,16 +172,16 @@ mod tests {
 
   const NOW: i64 = 2_000_000_000_000_000_000;
 
-  fn item(entry: SearchEntry) -> SearchItem {
-    SearchItem::new(entry, NOW)
+  fn candidate(command: Command) -> Candidate {
+    Candidate::new(command, NOW)
   }
 
   #[test]
   fn display_aligns_age_directory_command_and_nonzero_exit_code() {
-    let item = item(SearchEntry {
-      command: "bar".into(),
+    let item = candidate(Command {
       directory: Some("/foo".into()),
       exit_code: Some(1),
+      text: "bar".into(),
       timestamp_ns: NOW - 12_000_000_000,
     });
 
@@ -209,7 +209,7 @@ mod tests {
     #[track_caller]
     fn case(directory: &str, expected: &str) {
       assert_eq!(
-        item(SearchEntry {
+        candidate(Command {
           directory: Some(directory.into()),
           ..Default::default()
         })
@@ -225,10 +225,10 @@ mod tests {
   #[test]
   fn display_hides_zero_exit_code_and_uses_cwd_basename() {
     assert_eq!(
-      item(SearchEntry {
-        command: "bar".into(),
+      candidate(Command {
         directory: Some("/foo/baz".into()),
         exit_code: Some(0),
+        text: "bar".into(),
         timestamp_ns: NOW - 8 * 60 * 1_000_000_000,
       })
       .row(),
@@ -239,8 +239,8 @@ mod tests {
   #[test]
   fn display_keeps_multiline_commands_on_one_row() {
     assert_eq!(
-      item(SearchEntry {
-        command: "foo\n\tbar".into(),
+      candidate(Command {
+        text: "foo\n\tbar".into(),
         timestamp_ns: NOW,
         ..Default::default()
       })
@@ -251,8 +251,8 @@ mod tests {
 
   #[test]
   fn display_preserves_empty_metadata_columns() {
-    let item = item(SearchEntry {
-      command: "foo".into(),
+    let item = candidate(Command {
+      text: "foo".into(),
       timestamp_ns: 1,
       ..Default::default()
     });
@@ -269,7 +269,7 @@ mod tests {
     #[track_caller]
     fn case(age_seconds: i64, expected: &str) {
       assert_eq!(
-        item(SearchEntry {
+        candidate(Command {
           timestamp_ns: NOW - age_seconds * 1_000_000_000,
           ..Default::default()
         })
@@ -286,7 +286,7 @@ mod tests {
     case(2 * 365 * 24 * 60 * 60, "2y");
 
     assert_eq!(
-      item(SearchEntry {
+      candidate(Command {
         timestamp_ns: NOW + 1,
         ..Default::default()
       })
@@ -295,7 +295,7 @@ mod tests {
     );
 
     assert_eq!(
-      item(SearchEntry {
+      candidate(Command {
         timestamp_ns: 1,
         ..Default::default()
       })
@@ -306,10 +306,10 @@ mod tests {
 
   #[test]
   fn skim_item_matches_and_outputs_original_command() {
-    let item = item(SearchEntry {
-      command: "foo\nbar".into(),
+    let item = candidate(Command {
       directory: Some("/baz".into()),
       exit_code: Some(1),
+      text: "foo\nbar".into(),
       ..Default::default()
     });
 
