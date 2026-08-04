@@ -1,9 +1,10 @@
 use super::*;
 
 mod bash;
+mod fish;
 mod zsh;
 
-pub(super) use {bash::Bash, zsh::Zsh};
+pub(super) use {bash::Bash, fish::Fish, zsh::Zsh};
 
 pub(super) trait Parser: Default {
   const FORMAT: &'static str;
