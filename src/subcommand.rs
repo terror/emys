@@ -1,10 +1,11 @@
 use {
-  super::*, add::Add, backup::Backup, r#import::Import, init::Init, list::List,
-  search::Search,
+  super::*, add::Add, backup::Backup, clear::Clear, r#import::Import,
+  init::Init, list::List, search::Search,
 };
 
 mod add;
 mod backup;
+mod clear;
 mod r#import;
 mod init;
 mod list;
@@ -16,6 +17,8 @@ pub(crate) enum Subcommand {
   Add(Add),
   #[command(about = "Back up the database")]
   Backup(Backup),
+  #[command(about = "Clear the history database")]
+  Clear(Clear),
   #[command(about = "Import shell history", alias = "i", subcommand)]
   Import(Import),
   #[command(about = "Generate shell integration")]
@@ -31,6 +34,7 @@ impl Subcommand {
     match self {
       Self::Add(add) => add.run(database),
       Self::Backup(backup) => backup.run(database),
+      Self::Clear(_) => Clear::run(database),
       Self::Import(import) => import.run(database),
       Self::Init(init) => {
         init.run(database);
