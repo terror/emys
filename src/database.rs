@@ -8,6 +8,7 @@ impl Database {
   const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_initial.sql"),
     include_str!("../migrations/0002_execution_timestamp_id.sql"),
+    include_str!("../migrations/0003_import_sources.sql"),
   ];
 
   const SCHEMA_VERSION: usize = Self::MIGRATIONS.len();
@@ -31,6 +32,7 @@ impl Database {
 
     let result = (|| {
       let mut options = fs::OpenOptions::new();
+
       options.write(true).create_new(true);
 
       #[cfg(unix)]
@@ -73,7 +75,12 @@ impl Database {
   }
 
   pub(crate) fn clear(&self) -> Result {
-    self.connection.execute("DELETE FROM executions", [])?;
+    let transaction = self.connection.unchecked_transaction()?;
+
+    transaction.execute("DELETE FROM import_sources", [])?;
+    transaction.execute("DELETE FROM executions", [])?;
+
+    transaction.commit()?;
 
     Ok(())
   }
@@ -121,10 +128,51 @@ impl Database {
 
   pub(crate) fn import(
     &self,
-    records: impl IntoIterator<Item = Result<(Uuid, Execution)>>,
+    format: &str,
+    path: &Path,
+    records: impl IntoIterator<Item = Result<Record>>,
     mut progress: impl FnMut(ProgressEntry),
   ) -> Result<usize> {
-    let transaction = self.connection.unchecked_transaction()?;
+    let path = path.as_os_str().as_encoded_bytes();
+
+    let (source_id, generation) = self.reserve_source(format, path)?;
+
+    let records = records.into_iter().collect::<Result<Vec<_>>>()?;
+
+    i32::try_from(records.len())
+      .context("history contains too many records")?;
+
+    let transaction = Transaction::new_unchecked(
+      &self.connection,
+      TransactionBehavior::Immediate,
+    )?;
+
+    let current_generation = transaction.query_row(
+      "SELECT generation FROM import_sources WHERE id = ?1",
+      [&source_id],
+      |row| row.get::<_, i64>(0),
+    )?;
+
+    if current_generation != generation {
+      return Ok(0);
+    }
+
+    let previous = {
+      let mut statement = transaction.prepare(
+        "SELECT fingerprint, execution_id
+         FROM source_records
+         WHERE source_id = ?1
+         ORDER BY position",
+      )?;
+
+      statement
+        .query_map([&source_id], |row| {
+          Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    let mut identifiers = Self::reconcile(&previous, &records)?;
 
     let inserted = {
       let mut statement = transaction.prepare(
@@ -139,27 +187,47 @@ impl Database {
           hostname,
           shell
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-        ON CONFLICT(id) DO NOTHING",
+        ON CONFLICT (id) DO UPDATE SET
+          command = excluded.command,
+          timestamp_ns = excluded.timestamp_ns,
+          duration_ns = excluded.duration_ns,
+          exit_code = excluded.exit_code,
+          directory = excluded.directory,
+          session = excluded.session,
+          hostname = excluded.hostname,
+          shell = excluded.shell
+        WHERE ?10 = 0",
       )?;
 
       let mut inserted = 0;
 
-      for (index, record) in records.into_iter().enumerate() {
-        let (id, execution) = record?;
+      for (index, (record, identifier)) in
+        records.iter().zip(&mut identifiers).enumerate()
+      {
+        let new = identifier.is_none();
 
-        let directory = execution.directory()?;
+        let id = identifier.get_or_insert_with(|| Uuid::new_v4().to_string());
 
-        inserted += statement.execute(params![
-          id.to_string(),
-          execution.command,
-          execution.timestamp_ns,
-          execution.duration_ns,
-          execution.exit_code,
+        let directory = record.execution.directory()?;
+
+        let changed = statement.execute(params![
+          id.as_str(),
+          record.execution.command,
+          record.execution.timestamp_ns,
+          record.execution.duration_ns,
+          record.execution.exit_code,
           directory,
-          execution.session,
-          execution.hostname,
-          execution.shell,
+          record.execution.session,
+          record.execution.hostname,
+          record.execution.shell,
+          new,
         ])?;
+
+        if new && changed == 0 {
+          bail!("generated duplicate execution ID `{id}`");
+        }
+
+        inserted += usize::from(new);
 
         progress(ProgressEntry {
           inserted,
@@ -169,6 +237,33 @@ impl Database {
 
       inserted
     };
+
+    transaction.execute(
+      "DELETE FROM source_records WHERE source_id = ?1",
+      [&source_id],
+    )?;
+
+    {
+      let mut statement = transaction.prepare(
+        "INSERT INTO source_records (
+           source_id,
+           position,
+           fingerprint,
+           execution_id
+         ) VALUES (?1, ?2, ?3, ?4)",
+      )?;
+
+      for (position, (record, identifier)) in
+        records.iter().zip(identifiers).enumerate()
+      {
+        statement.execute(params![
+          source_id,
+          i64::try_from(position)?,
+          record.fingerprint,
+          identifier.unwrap(),
+        ])?;
+      }
+    }
 
     transaction.commit()?;
 
@@ -260,6 +355,86 @@ impl Database {
       .collect()
   }
 
+  fn reconcile(
+    previous: &[(Vec<u8>, String)],
+    records: &[Record],
+  ) -> Result<Vec<Option<String>>> {
+    let previous_len = i32::try_from(previous.len())
+      .context("previous history contains too many records")?
+      .cast_unsigned();
+
+    let records_len = u32::try_from(records.len())
+      .context("current history contains too many records")?;
+
+    let mut input = InternedInput::default();
+
+    input.reserve(previous_len, records_len);
+
+    input.update_before(
+      previous.iter().map(|(fingerprint, _)| fingerprint).cloned(),
+    );
+
+    input
+      .update_after(records.iter().map(|record| &record.fingerprint).cloned());
+
+    let diff = Diff::compute(Algorithm::Myers, &input);
+
+    let identifiers = (0..records_len)
+      .scan(0_u32, |before, after| {
+        while *before < previous_len && diff.is_removed(*before) {
+          *before += 1;
+        }
+
+        let identifier = if diff.is_added(after) {
+          None
+        } else {
+          let identifier = previous[*before as usize].1.clone();
+          *before += 1;
+          Some(identifier)
+        };
+
+        Some(identifier)
+      })
+      .collect();
+
+    Ok(identifiers)
+  }
+
+  fn reserve_source(&self, format: &str, path: &[u8]) -> Result<(String, i64)> {
+    let transaction = Transaction::new_unchecked(
+      &self.connection,
+      TransactionBehavior::Immediate,
+    )?;
+
+    let source_id = Uuid::new_v4().to_string();
+
+    transaction.execute(
+      "INSERT INTO import_sources (id, format, path)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT (format, path) DO NOTHING",
+      params![source_id, format, path],
+    )?;
+
+    transaction.execute(
+      "UPDATE import_sources
+       SET generation = generation + 1
+       WHERE format = ?1 AND path = ?2",
+      params![format, path],
+    )?;
+
+    let source = transaction.query_row(
+      "SELECT id, generation
+       FROM import_sources
+       WHERE format = ?1 AND path = ?2",
+      params![format, path],
+      |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+
+    transaction.commit()?;
+
+    Ok(source)
+  }
+
   pub(crate) fn search(
     &self,
     query: &str,
@@ -339,9 +514,13 @@ impl TryFrom<Connection> for Database {
     connection.busy_timeout(Duration::from_secs(5))?;
 
     connection.pragma_update(None, "journal_mode", "WAL")?;
+    connection.pragma_update(None, "foreign_keys", true)?;
+
+    let transaction =
+      connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
     let version: i64 =
-      connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+      transaction.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     let Ok(version) = usize::try_from(version) else {
       bail!(
@@ -357,8 +536,6 @@ impl TryFrom<Connection> for Database {
         Self::SCHEMA_VERSION,
       );
     }
-
-    let transaction = connection.transaction()?;
 
     for (version, migration) in
       Self::MIGRATIONS.iter().enumerate().skip(version)
@@ -407,7 +584,10 @@ impl TryFrom<&Path> for Database {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+  use {
+    super::*,
+    std::{collections::HashMap, iter},
+  };
 
   #[test]
   fn backup_copies_executions_while_source_remains_open() {
@@ -549,9 +729,28 @@ mod tests {
       })
       .unwrap();
 
+    database
+      .connection()
+      .execute(
+        "INSERT INTO import_sources (id, format, path) VALUES (?1, ?2, ?3)",
+        params![Uuid::new_v4().to_string(), "foo", b"bar"],
+      )
+      .unwrap();
+
     database.clear().unwrap();
 
-    assert_eq!(database.recent(20).unwrap(), Vec::new());
+    assert_eq!(
+      (
+        database.recent(20).unwrap(),
+        database
+          .connection()
+          .query_row("SELECT COUNT(*) FROM import_sources", [], |row| {
+            row.get::<_, i64>(0)
+          })
+          .unwrap(),
+      ),
+      (Vec::new(), 0),
+    );
 
     database
       .insert(&Execution {
@@ -605,37 +804,51 @@ mod tests {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    let records = vec![
-      (
-        Uuid::from_u128(1),
-        Execution {
+    let records = [
+      Record {
+        execution: Execution {
           command: "foo".into(),
           timestamp_ns: 1,
           ..Default::default()
         },
-      ),
-      (
-        Uuid::from_u128(2),
-        Execution {
+        fingerprint: b"foo".to_vec(),
+      },
+      Record {
+        execution: Execution {
           command: "bar".into(),
           timestamp_ns: 2,
           ..Default::default()
         },
-      ),
+        fingerprint: b"bar".to_vec(),
+      },
     ];
 
     assert_eq!(
-      (
-        database
-          .import(records.iter().cloned().map(Ok), |_| {})
-          .unwrap(),
-        database
-          .import(records.iter().cloned().map(Ok), |_| {})
-          .unwrap(),
-        database.recent(20).unwrap(),
-      ),
-      (2, 0, records.into_iter().rev().collect()),
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          records.iter().cloned().map(Ok),
+          |_| {},
+        )
+        .unwrap(),
+      2,
     );
+
+    let imported = database.recent(20).unwrap();
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          records.into_iter().map(Ok),
+          |_| {},
+        )
+        .unwrap(),
+      0,
+    );
+    assert_eq!(database.recent(20).unwrap(), imported);
   }
 
   #[test]
@@ -643,48 +856,249 @@ mod tests {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
 
-    let first = (
-      Uuid::from_u128(1),
-      Execution {
-        command: "foo".into(),
-        timestamp_ns: 1,
-        duration_ns: Some(2),
-        exit_code: Some(3),
-        directory: Some("/foo".into()),
-        session: Some("bar".into()),
-        hostname: Some("foo".into()),
-        shell: Some("zsh".into()),
-      },
-    );
+    let first = Execution {
+      command: "foo".into(),
+      timestamp_ns: 1,
+      duration_ns: Some(2),
+      exit_code: Some(3),
+      directory: Some("/foo".into()),
+      session: Some("bar".into()),
+      hostname: Some("foo".into()),
+      shell: Some("zsh".into()),
+    };
 
-    let second = (
-      Uuid::from_u128(2),
-      Execution {
-        command: "foo".into(),
-        timestamp_ns: 4,
-        duration_ns: Some(5),
-        exit_code: Some(6),
-        directory: Some("/bar".into()),
-        session: Some("foo".into()),
-        hostname: Some("bar".into()),
-        shell: Some("zsh".into()),
-      },
-    );
+    let second = Execution {
+      command: "foo".into(),
+      timestamp_ns: 4,
+      duration_ns: Some(5),
+      exit_code: Some(6),
+      directory: Some("/bar".into()),
+      session: Some("foo".into()),
+      hostname: Some("bar".into()),
+      shell: Some("zsh".into()),
+    };
 
     assert_eq!(
       database
-        .import([Ok(first.clone()), Ok(second.clone())], |_| {})
+        .import(
+          "test",
+          Path::new("foo"),
+          [
+            Ok(Record {
+              execution: first.clone(),
+              fingerprint: b"foo".to_vec(),
+            }),
+            Ok(Record {
+              execution: second.clone(),
+              fingerprint: b"bar".to_vec(),
+            }),
+          ],
+          |_| {},
+        )
         .unwrap(),
-      2
+      2,
     );
 
     assert_eq!(
       (
-        database.recent(20).unwrap(),
-        database.search("foo", 20).unwrap()
+        database
+          .recent(20)
+          .unwrap()
+          .into_iter()
+          .map(|(_, execution)| execution)
+          .collect::<Vec<_>>(),
+        database
+          .search("foo", 20)
+          .unwrap()
+          .into_iter()
+          .map(|(_, execution)| execution)
+          .collect::<Vec<_>>(),
       ),
       (vec![second.clone(), first], vec![second]),
     );
+  }
+
+  #[test]
+  fn import_reconciles_ordered_source_snapshots() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          [
+            Ok(Record {
+              execution: Execution {
+                command: "foo".into(),
+                timestamp_ns: 1,
+                ..Default::default()
+              },
+              fingerprint: b"foo".to_vec(),
+            }),
+            Ok(Record {
+              execution: Execution {
+                command: "bar".into(),
+                timestamp_ns: 2,
+                ..Default::default()
+              },
+              fingerprint: b"bar".to_vec(),
+            }),
+          ],
+          |_| {},
+        )
+        .unwrap(),
+      2,
+    );
+
+    let original = database
+      .recent(20)
+      .unwrap()
+      .into_iter()
+      .map(|(id, execution)| (execution.command, (id, execution.timestamp_ns)))
+      .collect::<HashMap<_, _>>();
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          [
+            Ok(Record {
+              execution: Execution {
+                command: "baz".into(),
+                timestamp_ns: 1,
+                ..Default::default()
+              },
+              fingerprint: b"baz".to_vec(),
+            }),
+            Ok(Record {
+              execution: Execution {
+                command: "foo".into(),
+                timestamp_ns: 2,
+                ..Default::default()
+              },
+              fingerprint: b"foo".to_vec(),
+            }),
+            Ok(Record {
+              execution: Execution {
+                command: "bar".into(),
+                timestamp_ns: 3,
+                ..Default::default()
+              },
+              fingerprint: b"bar".to_vec(),
+            }),
+          ],
+          |_| {},
+        )
+        .unwrap(),
+      1,
+    );
+
+    let reconciled = database
+      .recent(20)
+      .unwrap()
+      .into_iter()
+      .map(|(id, execution)| (execution.command, (id, execution.timestamp_ns)))
+      .collect::<HashMap<_, _>>();
+
+    assert_eq!(
+      (
+        reconciled["foo"].0,
+        reconciled["bar"].0,
+        reconciled["foo"].1,
+        reconciled["bar"].1,
+      ),
+      (original["foo"].0, original["bar"].0, 2, 3),
+    );
+  }
+
+  #[test]
+  fn import_retains_truncated_records_and_preserves_new_duplicates() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          [
+            Ok(Record {
+              execution: Execution {
+                command: "foo".into(),
+                timestamp_ns: 1,
+                ..Default::default()
+              },
+              fingerprint: b"foo".to_vec(),
+            }),
+            Ok(Record {
+              execution: Execution {
+                command: "bar".into(),
+                timestamp_ns: 2,
+                ..Default::default()
+              },
+              fingerprint: b"bar".to_vec(),
+            }),
+          ],
+          |_| {},
+        )
+        .unwrap(),
+      2,
+    );
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          [Ok(Record {
+            execution: Execution {
+              command: "bar".into(),
+              timestamp_ns: 1,
+              ..Default::default()
+            },
+            fingerprint: b"bar".to_vec(),
+          })],
+          |_| {},
+        )
+        .unwrap(),
+      0,
+    );
+
+    assert_eq!(database.recent(20).unwrap().len(), 2);
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          [
+            Ok(Record {
+              execution: Execution {
+                command: "bar".into(),
+                timestamp_ns: 1,
+                ..Default::default()
+              },
+              fingerprint: b"bar".to_vec(),
+            }),
+            Ok(Record {
+              execution: Execution {
+                command: "bar".into(),
+                timestamp_ns: 2,
+                ..Default::default()
+              },
+              fingerprint: b"bar".to_vec(),
+            }),
+          ],
+          |_| {},
+        )
+        .unwrap(),
+      1,
+    );
+
+    assert_eq!(database.recent(20).unwrap().len(), 3);
   }
 
   #[test]
@@ -694,22 +1108,24 @@ mod tests {
 
     let error = database
       .import(
+        "test",
+        Path::new("foo"),
         [
-          Ok((
-            Uuid::from_u128(1),
-            Execution {
+          Ok(Record {
+            execution: Execution {
               command: "foo".into(),
               ..Default::default()
             },
-          )),
-          Ok((
-            Uuid::from_u128(2),
-            Execution {
+            fingerprint: b"foo".to_vec(),
+          }),
+          Ok(Record {
+            execution: Execution {
               command: "bar".into(),
               duration_ns: Some(-1),
               ..Default::default()
             },
-          )),
+            fingerprint: b"bar".to_vec(),
+          }),
         ],
         |_| {},
       )
@@ -741,14 +1157,16 @@ mod tests {
 
     let error = database
       .import(
+        "test",
+        Path::new("foo"),
         [
-          Ok((
-            Uuid::from_u128(1),
-            Execution {
+          Ok(Record {
+            execution: Execution {
               command: "foo".into(),
               ..Default::default()
             },
-          )),
+            fingerprint: b"foo".to_vec(),
+          }),
           Err(Error::msg("bar")),
         ],
         |status| progress.push((status.processed, status.inserted)),
@@ -757,8 +1175,38 @@ mod tests {
 
     assert_eq!(
       (error.to_string(), progress, database.recent(20).unwrap(),),
-      ("bar".into(), vec![(1, 1)], Vec::new()),
+      ("bar".into(), Vec::new(), Vec::new()),
     );
+  }
+
+  #[test]
+  fn import_superseded_source_generation_is_discarded() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    assert_eq!(
+      database
+        .import(
+          "test",
+          Path::new("foo"),
+          iter::once_with(|| {
+            database.reserve_source("test", b"foo").unwrap();
+
+            Ok(Record {
+              execution: Execution {
+                command: "foo".into(),
+                ..Default::default()
+              },
+              fingerprint: b"foo".to_vec(),
+            })
+          }),
+          |_| {},
+        )
+        .unwrap(),
+      0,
+    );
+
+    assert_eq!(database.recent(20).unwrap(), Vec::new());
   }
 
   #[test]
@@ -857,7 +1305,7 @@ mod tests {
           .unwrap(),
         columns,
       ),
-      (2, vec!["timestamp_ns".into(), "id".into()]),
+      (3, vec!["timestamp_ns".into(), "id".into()]),
     );
   }
 
@@ -1073,7 +1521,7 @@ mod tests {
   fn unsupported_schema_is_rejected() {
     let connection = Connection::open_in_memory().unwrap();
 
-    connection.execute_batch("PRAGMA user_version = 3").unwrap();
+    connection.execute_batch("PRAGMA user_version = 4").unwrap();
 
     let Err(error) = Database::try_from(connection) else {
       panic!("expected unsupported schema to fail")
@@ -1081,7 +1529,7 @@ mod tests {
 
     assert_eq!(
       error.to_string(),
-      "database schema version 3 is unsupported; expected 2",
+      "database schema version 4 is unsupported; expected 3",
     );
   }
 }

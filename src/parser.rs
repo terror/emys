@@ -11,11 +11,11 @@ pub(super) trait Parser: Default {
     reader
   }
 
-  fn entries(reader: impl Read) -> impl Iterator<Item = Result<Entry>> {
-    Entries::new(Self::decode(reader), Self::default())
+  fn finish(&mut self) -> Result<Option<Record>>;
+
+  fn parse(&mut self, line: Line) -> Result<Option<Record>>;
+
+  fn records(reader: impl Read) -> impl Iterator<Item = Result<Record>> {
+    Records::new(Self::decode(reader), Self::default())
   }
-
-  fn finish(&mut self) -> Result<Option<Entry>>;
-
-  fn parse(&mut self, line: Line) -> Result<Option<Entry>>;
 }

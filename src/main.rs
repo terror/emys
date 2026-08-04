@@ -3,21 +3,20 @@ use {
   arguments::Arguments,
   clap::{Parser as Clap, ValueEnum},
   database::Database,
-  entries::Entries,
-  entry::Entry,
   execution::Execution,
+  imara_diff::{Algorithm, Diff, InternedInput},
   importer::{Importer, Zsh},
   indicatif::{ProgressBar, ProgressStyle},
-  key::Key,
   line::Line,
   lines::Lines,
   parser::Parser,
   progress::Progress,
   progress_entry::ProgressEntry,
-  rusqlite::{Connection, MAIN_DB, params},
+  record::Record,
+  records::Records,
+  rusqlite::{Connection, MAIN_DB, Transaction, TransactionBehavior, params},
   shell::Shell,
   std::{
-    collections::HashMap,
     env, fs,
     io::{self, BufRead, BufReader, IsTerminal, Read},
     mem,
@@ -46,16 +45,15 @@ use {
 
 mod arguments;
 mod database;
-mod entries;
-mod entry;
 mod execution;
 mod importer;
-mod key;
 mod line;
 mod lines;
 mod parser;
 mod progress;
 mod progress_entry;
+mod record;
+mod records;
 mod shell;
 mod subcommand;
 
