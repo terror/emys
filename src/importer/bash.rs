@@ -7,26 +7,12 @@ pub(crate) struct Bash {
 }
 
 impl Importer for Bash {
+  const DEFAULT_HISTORY_FILE: &'static str = ".bash_history";
   const NAME: &'static str = "Bash";
 
   type Parser = parser::Bash;
 
-  fn path(&self) -> Result<PathBuf> {
-    self
-      .path
-      .clone()
-      .or_else(|| {
-        env::var_os("HISTFILE")
-          .filter(|path| !path.is_empty())
-          .map(PathBuf::from)
-      })
-      .or_else(|| {
-        env::var_os("HOME")
-          .filter(|path| !path.is_empty())
-          .map(|path| PathBuf::from(path).join(".bash_history"))
-      })
-      .context(
-        "failed to determine bash history path; pass PATH or set HISTFILE or HOME",
-      )
+  fn explicit_path(&self) -> Option<&Path> {
+    self.path.as_deref()
   }
 }
