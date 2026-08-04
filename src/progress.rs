@@ -46,6 +46,8 @@ impl Progress {
 
       bar.set_message(format!("{name}: parsing"));
 
+      bar.enable_steady_tick(Duration::from_millis(50));
+
       Some(bar)
     } else {
       None
