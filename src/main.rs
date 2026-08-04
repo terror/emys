@@ -35,7 +35,6 @@ use {
     prelude::bounded,
   },
   std::{
-    collections::HashSet,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     sync::Arc,
     thread,
