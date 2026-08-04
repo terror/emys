@@ -27,6 +27,6 @@ impl Arguments {
       directory.join("history.db")
     };
 
-    self.subcommand.run(Database::open(path)?)
+    self.subcommand.run(Database::try_from(path.as_path())?)
   }
 }

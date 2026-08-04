@@ -329,7 +329,7 @@ impl Database {
     Ok(id)
   }
 
-  pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self> {
+  fn open(path: impl AsRef<Path>) -> Result<Self> {
     Self::try_from(Connection::open(path)?)
   }
 
