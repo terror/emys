@@ -6,9 +6,9 @@ use {
   entries::Entries,
   entry::Entry,
   execution::Execution,
-  identity::Identity,
   importer::{Importer, Zsh},
   indicatif::{ProgressBar, ProgressStyle},
+  key::Key,
   line::Line,
   lines::Lines,
   parser::Parser,
@@ -49,8 +49,8 @@ mod database;
 mod entries;
 mod entry;
 mod execution;
-mod identity;
 mod importer;
+mod key;
 mod line;
 mod lines;
 mod parser;

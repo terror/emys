@@ -43,7 +43,7 @@ pub(super) trait Importer {
         )
       })?;
 
-      let key = entry.identity.identifier(Self::Parser::FORMAT, 0);
+      let key = entry.key.identifier(Self::Parser::FORMAT, 0);
 
       let occurrence = occurrences.entry(key).or_insert(0_u64);
 
@@ -51,7 +51,7 @@ pub(super) trait Importer {
         .checked_add(1)
         .context("history occurrence count overflowed")?;
 
-      let id = entry.identity.identifier(Self::Parser::FORMAT, *occurrence);
+      let id = entry.key.identifier(Self::Parser::FORMAT, *occurrence);
 
       let mut execution = entry.execution;
 

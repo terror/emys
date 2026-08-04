@@ -63,9 +63,9 @@ mod tests {
           command: String::from_utf8(mem::take(&mut self.0)).unwrap(),
           ..Default::default()
         },
-        identity: Identity {
-          fields: Vec::new(),
-          scheme: Vec::new(),
+        key: Key {
+          components: Vec::new(),
+          variant: Vec::new(),
         },
       }))
     }
