@@ -1,13 +1,4 @@
-CREATE TABLE commands (
-  command       TEXT PRIMARY KEY NOT NULL CHECK (command <> ''),
-  timestamp_ns  INTEGER NOT NULL,
-  execution_id  TEXT NOT NULL
-) STRICT;
-
-CREATE INDEX commands_timestamp
-ON commands (timestamp_ns DESC, execution_id DESC, command);
-
-CREATE TABLE executions (
+CREATE TABLE entries (
   id            TEXT PRIMARY KEY NOT NULL,
   command       TEXT NOT NULL CHECK (command <> ''),
   timestamp_ns  INTEGER NOT NULL,
@@ -19,17 +10,17 @@ CREATE TABLE executions (
   shell         TEXT
 ) STRICT;
 
-CREATE INDEX executions_directory_timestamp
-ON executions (directory, timestamp_ns DESC);
+CREATE INDEX entries_directory_timestamp
+ON entries (directory, timestamp_ns DESC);
 
-CREATE INDEX executions_hostname_timestamp
-ON executions (hostname, timestamp_ns DESC);
+CREATE INDEX entries_hostname_timestamp
+ON entries (hostname, timestamp_ns DESC);
 
-CREATE INDEX executions_session_timestamp
-ON executions (session, timestamp_ns DESC);
+CREATE INDEX entries_session_timestamp
+ON entries (session, timestamp_ns DESC);
 
-CREATE INDEX executions_timestamp
-ON executions (timestamp_ns DESC, id DESC);
+CREATE INDEX entries_timestamp
+ON entries (timestamp_ns DESC, id DESC);
 
 CREATE TABLE import_sources (
   id          TEXT PRIMARY KEY NOT NULL,
@@ -39,12 +30,21 @@ CREATE TABLE import_sources (
   UNIQUE (format, path)
 ) STRICT;
 
+CREATE TABLE recency (
+  command       TEXT PRIMARY KEY NOT NULL CHECK (command <> ''),
+  timestamp_ns  INTEGER NOT NULL,
+  entry_id      TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX recency_timestamp
+ON recency (timestamp_ns DESC, entry_id DESC, command);
+
 CREATE TABLE source_records (
   source_id     TEXT NOT NULL,
   position      INTEGER NOT NULL CHECK (position >= 0),
   fingerprint   BLOB NOT NULL,
-  execution_id  TEXT NOT NULL,
+  entry_id      TEXT NOT NULL,
   PRIMARY KEY (source_id, position),
   FOREIGN KEY (source_id) REFERENCES import_sources(id) ON DELETE CASCADE,
-  FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
+  FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
 ) STRICT;

@@ -97,7 +97,7 @@ impl Shell {
         )
       })?;
 
-      record.execution.shell = Some(self.format().into());
+      record.entry.shell = Some(self.format().into());
 
       Ok(record)
     });
@@ -110,7 +110,7 @@ impl Shell {
 
     let inserted = result?;
 
-    println!("imported {inserted} executions from {}", path.display());
+    println!("imported {inserted} entries from {}", path.display());
 
     Ok(())
   }

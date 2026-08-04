@@ -188,7 +188,7 @@ fn backup() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/history\n")
     .run()?;
 
   test.command().argument("backup").argument(&path).run()?;
@@ -199,7 +199,7 @@ fn backup() -> Result {
     (
       connection.query_row("PRAGMA integrity_check", [], |row| row
         .get::<_, String>(0))?,
-      connection.query_row("SELECT COUNT(*) FROM executions", [], |row| {
+      connection.query_row("SELECT COUNT(*) FROM entries", [], |row| {
         row.get::<_, i64>(0)
       })?,
     ),
@@ -228,7 +228,7 @@ fn backup() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/history\n")
     .run()?;
 
   test
@@ -239,7 +239,7 @@ fn backup() -> Result {
 
   assert_eq!(
     Connection::open(path)?.query_row(
-      "SELECT COUNT(*) FROM executions",
+      "SELECT COUNT(*) FROM entries",
       [],
       |row| { row.get::<_, i64>(0) }
     )?,
@@ -250,7 +250,7 @@ fn backup() -> Result {
 }
 
 #[test]
-fn bash_records_execution() -> Result {
+fn bash_records_entry() -> Result {
   let test = Test::new()?;
 
   test
@@ -321,7 +321,7 @@ fn bash_records_execution() -> Result {
         shell,
         timestamp_ns > 0,
         duration_ns IS NULL OR duration_ns >= 0
-      FROM executions",
+      FROM entries",
       [],
       |row| {
         Ok((
@@ -364,17 +364,17 @@ fn clear() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/history\n")
     .run()?;
 
   test.command().argument("clear").run()?;
 
   assert_eq!(
-    test.database()?.query_row(
-      "SELECT COUNT(*) FROM executions",
-      [],
-      |row| { row.get::<_, i64>(0) }
-    )?,
+    test
+      .database()?
+      .query_row("SELECT COUNT(*) FROM entries", [], |row| {
+        row.get::<_, i64>(0)
+      })?,
     0,
   );
 
@@ -382,7 +382,7 @@ fn clear() -> Result {
 }
 
 #[test]
-fn fish_records_execution() -> Result {
+fn fish_records_entry() -> Result {
   let test = Test::new()?;
 
   test
@@ -454,7 +454,7 @@ fn fish_records_execution() -> Result {
         shell,
         timestamp_ns > 0,
         duration_ns IS NULL OR duration_ns >= 0
-      FROM executions",
+      FROM entries",
       [],
       |row| {
         Ok((
@@ -502,14 +502,14 @@ fn import_bash() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("bash")
-    .expected_stdout("imported 2 executions from [ROOT]/history\n")
+    .expected_stdout("imported 2 entries from [ROOT]/history\n")
     .run()?;
 
   let rows = test
     .database()?
     .prepare(
       "SELECT command, timestamp_ns, shell
-       FROM executions
+       FROM entries
        ORDER BY timestamp_ns",
     )?
     .query_map([], |row| {
@@ -560,7 +560,7 @@ fn import_defaults_are_shell_specific() -> Result {
     .environment("HISTFILE", &other_history)
     .environment("HOME", test.tempdir.path())
     .arguments(["import", "zsh"])
-    .expected_stdout("imported 1 executions from [ROOT]/.zsh_history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/.zsh_history\n")
     .run()?;
 
   test
@@ -568,19 +568,19 @@ fn import_defaults_are_shell_specific() -> Result {
     .environment("HISTFILE", &other_history)
     .environment("HOME", test.tempdir.path())
     .arguments(["import", "bash"])
-    .expected_stdout("imported 1 executions from [ROOT]/.bash_history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/.bash_history\n")
     .run()?;
 
   test
     .command()
     .environment("HOME", test.tempdir.path())
     .arguments(["import", "fish"])
-    .expected_stdout("imported 1 executions from [ROOT]/fish/fish_history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/fish/fish_history\n")
     .run()?;
 
   let rows = test
     .database()?
-    .prepare("SELECT command, shell FROM executions ORDER BY shell")?
+    .prepare("SELECT command, shell FROM entries ORDER BY shell")?
     .query_map([], |row| {
       Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?
@@ -614,14 +614,14 @@ fn import_fish() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("fish")
-    .expected_stdout("imported 2 executions from [ROOT]/history\n")
+    .expected_stdout("imported 2 entries from [ROOT]/history\n")
     .run()?;
 
   let rows = test
     .database()?
     .prepare(
       "SELECT command, timestamp_ns, shell
-       FROM executions
+       FROM entries
        ORDER BY timestamp_ns",
     )?
     .query_map([], |row| {
@@ -665,7 +665,7 @@ fn import_zsh() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 2 executions from [ROOT]/history\n")
+    .expected_stdout("imported 2 entries from [ROOT]/history\n")
     .run()?;
 
   let connection = test.database()?;
@@ -673,7 +673,7 @@ fn import_zsh() -> Result {
   let rows = connection
     .prepare(
       "SELECT command, timestamp_ns, duration_ns, shell
-       FROM executions
+       FROM entries
        ORDER BY timestamp_ns DESC",
     )?
     .query_map([], |row| {
@@ -706,15 +706,15 @@ fn import_zsh() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 0 executions from [ROOT]/history\n")
+    .expected_stdout("imported 0 entries from [ROOT]/history\n")
     .run()?;
 
   assert_eq!(
-    test.database()?.query_row(
-      "SELECT COUNT(*) FROM executions",
-      [],
-      |row| { row.get::<_, i64>(0) }
-    )?,
+    test
+      .database()?
+      .query_row("SELECT COUNT(*) FROM entries", [], |row| {
+        row.get::<_, i64>(0)
+      })?,
     2,
   );
 
@@ -882,7 +882,7 @@ fn list() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/history\n")
     .run()?;
 
   test
@@ -907,7 +907,7 @@ fn search() -> Result {
     .arguments(["import", "--path"])
     .argument(&history)
     .argument("zsh")
-    .expected_stdout("imported 1 executions from [ROOT]/history\n")
+    .expected_stdout("imported 1 entries from [ROOT]/history\n")
     .run()?;
 
   test
@@ -920,7 +920,7 @@ fn search() -> Result {
 }
 
 #[test]
-fn zsh_records_execution() -> Result {
+fn zsh_records_entry() -> Result {
   let test = Test::new()?;
 
   let script = test
@@ -991,7 +991,7 @@ fn zsh_records_execution() -> Result {
         shell,
         timestamp_ns > 0,
         duration_ns >= 0
-      FROM executions",
+      FROM entries",
       [],
       |row| {
         Ok((
