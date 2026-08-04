@@ -78,7 +78,7 @@ pub(crate) struct Zsh {
 }
 
 impl Zsh {
-  fn complete(&mut self) -> Result<Option<ParsedExecution>> {
+  fn complete(&mut self) -> Result<Option<Entry>> {
     let Some(line) = self.command_line.take() else {
       return Ok(None);
     };
@@ -124,7 +124,7 @@ impl Zsh {
 
       let duration_ns = nanoseconds(duration, "duration")?;
 
-      Ok(Some(ParsedExecution {
+      Ok(Some(Entry {
         execution: Execution {
           command: command.into(),
           duration_ns: Some(duration_ns),
@@ -148,7 +148,7 @@ impl Zsh {
 
       let fields = vec![command.as_bytes().to_vec()];
 
-      Ok(Some(ParsedExecution {
+      Ok(Some(Entry {
         execution: Execution {
           command,
           timestamp_ns: self.plain_timestamp_ns,
@@ -173,11 +173,11 @@ impl Parser for Zsh {
     }
   }
 
-  fn finish(&mut self) -> Result<Option<ParsedExecution>> {
+  fn finish(&mut self) -> Result<Option<Entry>> {
     self.complete()
   }
 
-  fn parse(&mut self, mut line: Line) -> Result<Option<ParsedExecution>> {
+  fn parse(&mut self, mut line: Line) -> Result<Option<Entry>> {
     let continued = line.terminated && line.bytes.ends_with(b"\\");
 
     if continued {
@@ -226,7 +226,7 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: ": foo".into(),
             timestamp_ns: 1,
@@ -237,7 +237,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: ": 1:x;bar".into(),
             timestamp_ns: 2,
@@ -248,7 +248,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: ": 1:2bar;baz".into(),
             timestamp_ns: 3,
@@ -298,7 +298,7 @@ mod tests {
       Zsh::entries(&b": 1:2;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      vec![ParsedExecution {
+      vec![Entry {
         execution: Execution {
           command: "foo".into(),
           duration_ns: Some(2_000_000_000),
@@ -334,7 +334,7 @@ mod tests {
       Zsh::entries(&[0xFF][..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      vec![ParsedExecution {
+      vec![Entry {
         execution: Execution {
           command: "\u{FFFD}".into(),
           timestamp_ns: 1,
@@ -354,7 +354,7 @@ mod tests {
       Zsh::entries(&b"foo \xF0\x83\xBF\x83\xB8\x80"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      vec![ParsedExecution {
+      vec![Entry {
         execution: Execution {
           command: "foo \u{1F600}".into(),
           timestamp_ns: 1,
@@ -398,7 +398,7 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 1,
@@ -409,7 +409,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "bar".into(),
             duration_ns: Some(3_000_000_000),
@@ -425,7 +425,7 @@ mod tests {
             scheme: b"extended".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "baz".into(),
             timestamp_ns: 2,
@@ -457,7 +457,7 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo \nbar".into(),
             timestamp_ns: 1,
@@ -468,7 +468,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "baz \nqux".into(),
             duration_ns: Some(2_000_000_000),
@@ -523,7 +523,7 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 1,
@@ -534,7 +534,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "bar".into(),
             timestamp_ns: 2,
@@ -566,7 +566,7 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 1,
@@ -577,7 +577,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo".into(),
             timestamp_ns: 2,
@@ -588,7 +588,7 @@ mod tests {
             scheme: b"plain".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
@@ -604,7 +604,7 @@ mod tests {
             scheme: b"extended".to_vec(),
           },
         },
-        ParsedExecution {
+        Entry {
           execution: Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),

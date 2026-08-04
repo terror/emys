@@ -17,7 +17,7 @@ impl<R: Read, P: Parser> Entries<R, P> {
 }
 
 impl<R: Read, P: Parser> Iterator for Entries<R, P> {
-  type Item = Result<ParsedExecution>;
+  type Item = Result<Entry>;
 
   fn next(&mut self) -> Option<Self::Item> {
     if self.done {
@@ -57,8 +57,8 @@ mod tests {
   impl Parser for TestParser {
     const FORMAT: &'static str = "test";
 
-    fn finish(&mut self) -> Result<Option<ParsedExecution>> {
-      Ok(Some(ParsedExecution {
+    fn finish(&mut self) -> Result<Option<Entry>> {
+      Ok(Some(Entry {
         execution: Execution {
           command: String::from_utf8(mem::take(&mut self.0)).unwrap(),
           ..Default::default()
@@ -70,7 +70,7 @@ mod tests {
       }))
     }
 
-    fn parse(&mut self, line: Line) -> Result<Option<ParsedExecution>> {
+    fn parse(&mut self, line: Line) -> Result<Option<Entry>> {
       self.0.extend(line.bytes);
 
       if line.terminated {
