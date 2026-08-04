@@ -131,13 +131,13 @@ impl Zsh {
           timestamp_ns,
           ..Default::default()
         },
-        identity: Identity {
-          fields: vec![
+        key: Key {
+          components: vec![
             command.as_bytes().to_vec(),
             timestamp_ns.to_be_bytes().to_vec(),
             duration_ns.to_be_bytes().to_vec(),
           ],
-          scheme: b"extended".to_vec(),
+          variant: b"extended".to_vec(),
         },
       }))
     } else {
@@ -146,7 +146,7 @@ impl Zsh {
         .checked_add(1)
         .context("plain history timestamp exceeds SQLite integer range")?;
 
-      let fields = vec![command.as_bytes().to_vec()];
+      let components = vec![command.as_bytes().to_vec()];
 
       Ok(Some(Entry {
         execution: Execution {
@@ -154,9 +154,9 @@ impl Zsh {
           timestamp_ns: self.plain_timestamp_ns,
           ..Default::default()
         },
-        identity: Identity {
-          fields,
-          scheme: b"plain".to_vec(),
+        key: Key {
+          components,
+          variant: b"plain".to_vec(),
         },
       }))
     }
@@ -232,9 +232,9 @@ mod tests {
             timestamp_ns: 1,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b": foo".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b": foo".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -243,9 +243,9 @@ mod tests {
             timestamp_ns: 2,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b": 1:x;bar".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b": 1:x;bar".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -254,9 +254,9 @@ mod tests {
             timestamp_ns: 3,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b": 1:2bar;baz".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b": 1:2bar;baz".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
       ],
@@ -305,13 +305,13 @@ mod tests {
           timestamp_ns: 1_000_000_000,
           ..Default::default()
         },
-        identity: Identity {
-          fields: vec![
+        key: Key {
+          components: vec![
             b"foo".to_vec(),
             1_000_000_000_i64.to_be_bytes().to_vec(),
             2_000_000_000_i64.to_be_bytes().to_vec(),
           ],
-          scheme: b"extended".to_vec(),
+          variant: b"extended".to_vec(),
         },
       }],
     );
@@ -340,9 +340,9 @@ mod tests {
           timestamp_ns: 1,
           ..Default::default()
         },
-        identity: Identity {
-          fields: vec!["\u{FFFD}".as_bytes().to_vec()],
-          scheme: b"plain".to_vec(),
+        key: Key {
+          components: vec!["\u{FFFD}".as_bytes().to_vec()],
+          variant: b"plain".to_vec(),
         },
       }],
     );
@@ -360,9 +360,9 @@ mod tests {
           timestamp_ns: 1,
           ..Default::default()
         },
-        identity: Identity {
-          fields: vec!["foo \u{1F600}".as_bytes().to_vec()],
-          scheme: b"plain".to_vec(),
+        key: Key {
+          components: vec!["foo \u{1F600}".as_bytes().to_vec()],
+          variant: b"plain".to_vec(),
         },
       }],
     );
@@ -404,9 +404,9 @@ mod tests {
             timestamp_ns: 1,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"foo".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"foo".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -416,13 +416,13 @@ mod tests {
             timestamp_ns: 2_000_000_000,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![
+          key: Key {
+            components: vec![
               b"bar".to_vec(),
               2_000_000_000_i64.to_be_bytes().to_vec(),
               3_000_000_000_i64.to_be_bytes().to_vec(),
             ],
-            scheme: b"extended".to_vec(),
+            variant: b"extended".to_vec(),
           },
         },
         Entry {
@@ -431,9 +431,9 @@ mod tests {
             timestamp_ns: 2,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"baz".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"baz".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
       ],
@@ -463,9 +463,9 @@ mod tests {
             timestamp_ns: 1,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"foo \nbar".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"foo \nbar".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -475,13 +475,13 @@ mod tests {
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![
+          key: Key {
+            components: vec![
               b"baz \nqux".to_vec(),
               1_000_000_000_i64.to_be_bytes().to_vec(),
               2_000_000_000_i64.to_be_bytes().to_vec(),
             ],
-            scheme: b"extended".to_vec(),
+            variant: b"extended".to_vec(),
           },
         },
       ],
@@ -529,9 +529,9 @@ mod tests {
             timestamp_ns: 1,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"foo".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"foo".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -540,9 +540,9 @@ mod tests {
             timestamp_ns: 2,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"bar".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"bar".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
       ],
@@ -572,9 +572,9 @@ mod tests {
             timestamp_ns: 1,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"foo".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"foo".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -583,9 +583,9 @@ mod tests {
             timestamp_ns: 2,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![b"foo".to_vec()],
-            scheme: b"plain".to_vec(),
+          key: Key {
+            components: vec![b"foo".to_vec()],
+            variant: b"plain".to_vec(),
           },
         },
         Entry {
@@ -595,13 +595,13 @@ mod tests {
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![
+          key: Key {
+            components: vec![
               b"foo".to_vec(),
               1_000_000_000_i64.to_be_bytes().to_vec(),
               2_000_000_000_i64.to_be_bytes().to_vec(),
             ],
-            scheme: b"extended".to_vec(),
+            variant: b"extended".to_vec(),
           },
         },
         Entry {
@@ -611,13 +611,13 @@ mod tests {
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          identity: Identity {
-            fields: vec![
+          key: Key {
+            components: vec![
               b"foo".to_vec(),
               1_000_000_000_i64.to_be_bytes().to_vec(),
               2_000_000_000_i64.to_be_bytes().to_vec(),
             ],
-            scheme: b"extended".to_vec(),
+            variant: b"extended".to_vec(),
           },
         },
       ],
