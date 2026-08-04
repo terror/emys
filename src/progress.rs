@@ -43,6 +43,7 @@ impl Progress {
       bar.set_style(
         ProgressStyle::with_template(SPINNER_STYLE)?.tick_chars(TICK_CHARS),
       );
+
       bar.set_message(format!("{name}: parsing"));
 
       Some(bar)
