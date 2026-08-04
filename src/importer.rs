@@ -44,7 +44,7 @@ pub(super) trait Importer {
 
         Ok((id, execution))
       })
-      .collect::<anyhow::Result<Vec<_>>>()?;
+      .collect::<Result<Vec<_>>>()?;
 
     let inserted = database.import(&records)?;
 
