@@ -91,6 +91,7 @@ impl Database {
     )?;
 
     let mut commands = HashSet::new();
+
     let mut rows = statement.query([])?;
 
     while let Some(row) = rows.next()? {
