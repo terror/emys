@@ -4,13 +4,13 @@ use {
   clap::{Parser as Clap, ValueEnum},
   database::Database,
   entries::Entries,
+  entry::Entry,
   execution::Execution,
   identity::Identity,
   importer::{Importer, Zsh},
   indicatif::{ProgressBar, ProgressStyle},
   line::Line,
   lines::Lines,
-  parsed_execution::ParsedExecution,
   parser::Parser,
   progress::Progress,
   progress_entry::ProgressEntry,
@@ -47,12 +47,12 @@ use {
 mod arguments;
 mod database;
 mod entries;
+mod entry;
 mod execution;
 mod identity;
 mod importer;
 mod line;
 mod lines;
-mod parsed_execution;
 mod parser;
 mod progress;
 mod progress_entry;
