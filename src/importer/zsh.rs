@@ -1,6 +1,7 @@
 use super::*;
 
 const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
+const META: u8 = 0x83;
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct Zsh {
@@ -13,8 +14,22 @@ impl Importer for Zsh {
   const NAME: &'static str = "Zsh";
 
   fn parse(contents: &[u8]) -> Result<Vec<ParsedExecution>> {
-    let contents =
-      str::from_utf8(contents).context("zsh history is not valid UTF-8")?;
+    let mut decoded = Vec::with_capacity(contents.len());
+
+    let mut bytes = contents.iter().copied();
+
+    while let Some(byte) = bytes.next() {
+      decoded.push(if byte == META {
+        bytes
+          .next()
+          .context("zsh history ends with an incomplete metafied byte")?
+          ^ 0x20
+      } else {
+        byte
+      });
+    }
+
+    let contents = String::from_utf8_lossy(&decoded);
 
     let nanoseconds = |value: &str, field: &str, line: usize| -> Result<i64> {
       value
@@ -249,10 +264,46 @@ mod tests {
   }
 
   #[test]
-  fn invalid_utf8() {
+  fn incomplete_metafied_byte() {
     assert_eq!(
-      Zsh::parse(&[0xFF]).unwrap_err().to_string(),
-      "zsh history is not valid UTF-8",
+      Zsh::parse(&[META]).unwrap_err().to_string(),
+      "zsh history ends with an incomplete metafied byte",
+    );
+  }
+
+  #[test]
+  fn invalid_utf8_is_lossy() {
+    assert_eq!(
+      Zsh::parse(&[0xFF]).unwrap(),
+      vec![ParsedExecution {
+        execution: Execution {
+          command: "\u{FFFD}".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+        identity: Identity {
+          fields: vec!["\u{FFFD}".as_bytes().to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+      }],
+    );
+  }
+
+  #[test]
+  fn metafied_unicode() {
+    assert_eq!(
+      Zsh::parse(b"foo \xF0\x83\xBF\x83\xB8\x80").unwrap(),
+      vec![ParsedExecution {
+        execution: Execution {
+          command: "foo \u{1F600}".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+        identity: Identity {
+          fields: vec!["foo \u{1F600}".as_bytes().to_vec()],
+          scheme: b"plain".to_vec(),
+        },
+      }],
     );
   }
 
