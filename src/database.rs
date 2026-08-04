@@ -157,12 +157,6 @@ impl Database {
       return Ok(0);
     }
 
-    progress(ProgressEntry {
-      inserted: 0,
-      processed: 0,
-      total: records.len(),
-    });
-
     let previous = {
       let mut statement = transaction.prepare(
         "SELECT fingerprint, execution_id
@@ -235,13 +229,10 @@ impl Database {
 
         inserted += usize::from(new);
 
-        if index + 1 < records.len() {
-          progress(ProgressEntry {
-            inserted,
-            processed: index + 1,
-            total: records.len(),
-          });
-        }
+        progress(ProgressEntry {
+          inserted,
+          processed: index + 1,
+        });
       }
 
       inserted
@@ -275,12 +266,6 @@ impl Database {
     }
 
     transaction.commit()?;
-
-    progress(ProgressEntry {
-      inserted,
-      processed: records.len(),
-      total: records.len(),
-    });
 
     Ok(inserted)
   }
