@@ -2,7 +2,7 @@ use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
   clap::{Parser as Clap, ValueEnum},
-  database::{Database, SearchEntry},
+  database::Database,
   entry::Entry,
   imara_diff::{Algorithm, Diff, InternedInput},
   indicatif::{ProgressBar, ProgressStyle},
@@ -18,6 +18,8 @@ use {
   record::Record,
   records::Records,
   rusqlite::{Connection, MAIN_DB, Transaction, TransactionBehavior, params},
+  search_entry::SearchEntry,
+  search_item::SearchItem,
   shell::Shell,
   skim::{
     DisplayContext, Skim, SkimItem, SkimItemSender,
@@ -55,6 +57,8 @@ mod progress;
 mod progress_entry;
 mod record;
 mod records;
+mod search_entry;
+mod search_item;
 mod shell;
 mod subcommand;
 

@@ -4,14 +4,6 @@ pub(crate) struct Database {
   connection: Connection,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct SearchEntry {
-  pub(crate) command: String,
-  pub(crate) directory: Option<PathBuf>,
-  pub(crate) exit_code: Option<i32>,
-  pub(crate) timestamp_ns: i64,
-}
-
 impl Database {
   const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
 
