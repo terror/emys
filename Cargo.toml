@@ -25,6 +25,7 @@ clap = { version = "4.6.5", features = ["derive"] }
 imara-diff = { version = "0.2.0", default-features = false }
 indicatif = "0.18.6"
 rusqlite = { version = "0.40.1", features = ["backup", "bundled"] }
+skim = { version = "5.6.1", default-features = false, features = ["cli"] }
 uuid = { version = "1.24.0", features = ["v4"] }
 xdg = "3.0.0"
 
@@ -32,6 +33,3 @@ xdg = "3.0.0"
 executable-path = "1.0.1"
 indoc = "2.0.7"
 tempfile = "3.27.0"
-
-[target."cfg(unix)".dependencies]
-skim = { version = "5.6.1", default-features = false, features = ["cli"] }
