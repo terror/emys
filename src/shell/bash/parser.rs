@@ -3,14 +3,14 @@ use super::*;
 const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
 
 #[derive(Default)]
-pub(crate) struct Bash {
+pub(crate) struct Parser {
   command: Vec<u8>,
   command_line: Option<usize>,
   plain_timestamp_ns: i64,
   timestamp: Option<(Vec<u8>, usize)>,
 }
 
-impl Bash {
+impl Parser {
   fn complete(&mut self) -> Result<Option<Record>> {
     self.command_line = None;
 
@@ -81,9 +81,7 @@ impl Bash {
   }
 }
 
-impl Parser for Bash {
-  const FORMAT: &'static str = "bash";
-
+impl crate::parser::Parser for Parser {
   fn finish(&mut self) -> Result<Option<Record>> {
     self.complete()
   }
@@ -122,7 +120,10 @@ mod tests {
     #[track_caller]
     fn case(history: &[u8]) {
       assert_eq!(
-        Bash::records(history).collect::<Result<Vec<_>>>().unwrap(),
+        Shell::Bash
+          .records(history)
+          .collect::<Result<Vec<_>>>()
+          .unwrap(),
         Vec::new(),
       );
     }
@@ -136,9 +137,10 @@ mod tests {
   #[test]
   fn history() {
     assert_eq!(
-      Bash::records(
-        indoc! {
-          b"
+      Shell::Bash
+        .records(
+          indoc! {
+            b"
           foo
           #1
           bar
@@ -146,11 +148,11 @@ mod tests {
           #2
           qux
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -192,7 +194,8 @@ mod tests {
   #[test]
   fn invalid_utf8_is_lossy() {
     assert_eq!(
-      Bash::records(&[0xFF][..])
+      Shell::Bash
+        .records(&[0xFF][..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
         .execution
@@ -204,7 +207,8 @@ mod tests {
   #[test]
   fn non_timestamps_are_commands() {
     assert_eq!(
-      Bash::records(&b"#\n#foo"[..])
+      Shell::Bash
+        .records(&b"#\n#foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()
         .into_iter()
@@ -217,7 +221,8 @@ mod tests {
   #[test]
   fn timestamp_allows_trailing_text() {
     assert_eq!(
-      Bash::records(&b"#1foo\nbar"[..])
+      Shell::Bash
+        .records(&b"#1foo\nbar"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
         .execution,
@@ -232,7 +237,8 @@ mod tests {
   #[test]
   fn timestamp_integer_overflow() {
     assert_eq!(
-      Bash::records(&b"#18446744073709551616\nfoo"[..])
+      Shell::Bash
+        .records(&b"#18446744073709551616\nfoo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
@@ -243,7 +249,8 @@ mod tests {
   #[test]
   fn timestamp_overflow() {
     assert_eq!(
-      Bash::records(&b"#9223372037\nfoo"[..])
+      Shell::Bash
+        .records(&b"#9223372037\nfoo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),

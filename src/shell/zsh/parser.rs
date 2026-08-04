@@ -71,13 +71,13 @@ impl<R: BufRead> Read for Metafied<R> {
 }
 
 #[derive(Default)]
-pub(crate) struct Zsh {
+pub(crate) struct Parser {
   command: Vec<u8>,
   command_line: Option<usize>,
   plain_timestamp_ns: i64,
 }
 
-impl Zsh {
+impl Parser {
   fn complete(&mut self) -> Result<Option<Record>> {
     let Some(line) = self.command_line.take() else {
       return Ok(None);
@@ -159,16 +159,7 @@ impl Zsh {
   }
 }
 
-impl Parser for Zsh {
-  const FORMAT: &'static str = "zsh";
-
-  fn decode(reader: impl Read) -> impl Read {
-    Metafied {
-      escaped: false,
-      reader: BufReader::new(reader),
-    }
-  }
-
+impl crate::parser::Parser for Parser {
   fn finish(&mut self) -> Result<Option<Record>> {
     self.complete()
   }
@@ -193,6 +184,13 @@ impl Parser for Zsh {
   }
 }
 
+pub(super) fn decode(reader: impl Read) -> impl Read {
+  Metafied {
+    escaped: false,
+    reader: BufReader::new(reader),
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use {super::*, indoc::indoc};
@@ -209,18 +207,19 @@ mod tests {
   #[test]
   fn commands_beginning_with_colon() {
     assert_eq!(
-      Zsh::records(
-        indoc! {
-          b"
+      Shell::Zsh
+        .records(
+          indoc! {
+            b"
           : foo
           : 1:x;bar
           : 1:2bar;baz
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -256,7 +255,8 @@ mod tests {
   #[test]
   fn duration_overflow() {
     assert_eq!(
-      Zsh::records(&b": 1:9223372037;foo"[..])
+      Shell::Zsh
+        .records(&b": 1:9223372037;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
@@ -267,7 +267,8 @@ mod tests {
   #[test]
   fn empty_extended_command() {
     assert_eq!(
-      Zsh::records(&b": 1:2;"[..])
+      Shell::Zsh
+        .records(&b": 1:2;"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       Vec::new(),
@@ -277,7 +278,10 @@ mod tests {
   #[test]
   fn empty_input() {
     assert_eq!(
-      Zsh::records(&b""[..]).collect::<Result<Vec<_>>>().unwrap(),
+      Shell::Zsh
+        .records(&b""[..])
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       Vec::new(),
     );
   }
@@ -285,7 +289,8 @@ mod tests {
   #[test]
   fn extended_history() {
     assert_eq!(
-      Zsh::records(&b": 1:2;foo"[..])
+      Shell::Zsh
+        .records(&b": 1:2;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       vec![Record::new(
@@ -308,7 +313,8 @@ mod tests {
   #[test]
   fn incomplete_metafied_byte() {
     assert_eq!(
-      Zsh::records(&[META][..])
+      Shell::Zsh
+        .records(&[META][..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
@@ -319,7 +325,8 @@ mod tests {
   #[test]
   fn invalid_utf8_is_lossy() {
     assert_eq!(
-      Zsh::records(&[0xFF][..])
+      Shell::Zsh
+        .records(&[0xFF][..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       vec![Record::new(
@@ -339,10 +346,12 @@ mod tests {
     let contents = b"foo \xF0\x83\xBF\x83\xB8\x80";
 
     assert_eq!(
-      Zsh::records(OneByte(io::Cursor::new(contents.to_vec())))
+      Shell::Zsh
+        .records(OneByte(io::Cursor::new(contents.to_vec())))
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      Zsh::records(&contents[..])
+      Shell::Zsh
+        .records(&contents[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
     );
@@ -351,7 +360,8 @@ mod tests {
   #[test]
   fn metafied_unicode() {
     assert_eq!(
-      Zsh::records(&b"foo \xF0\x83\xBF\x83\xB8\x80"[..])
+      Shell::Zsh
+        .records(&b"foo \xF0\x83\xBF\x83\xB8\x80"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       vec![Record::new(
@@ -369,18 +379,19 @@ mod tests {
   #[test]
   fn mixed_history() {
     assert_eq!(
-      Zsh::records(
-        indoc! {
-          b"
+      Shell::Zsh
+        .records(
+          indoc! {
+            b"
           foo
           : 2:3;bar
           baz
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -421,19 +432,20 @@ mod tests {
   #[test]
   fn multiline_records() {
     assert_eq!(
-      Zsh::records(
-        indoc! {
-          b"
+      Shell::Zsh
+        .records(
+          indoc! {
+            b"
           foo \x5C
           bar
           : 1:2;baz \x5C
           qux
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -473,10 +485,12 @@ mod tests {
     };
 
     assert_eq!(
-      Zsh::records(&contents[..])
+      Shell::Zsh
+        .records(&contents[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      Zsh::records(&contents[..])
+      Shell::Zsh
+        .records(&contents[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
     );
@@ -485,17 +499,18 @@ mod tests {
   #[test]
   fn plain_history() {
     assert_eq!(
-      Zsh::records(
-        indoc! {
-          b"
+      Shell::Zsh
+        .records(
+          indoc! {
+            b"
           foo
           bar
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -522,19 +537,20 @@ mod tests {
   #[test]
   fn repeated_commands() {
     assert_eq!(
-      Zsh::records(
-        indoc! {
-          b"
+      Shell::Zsh
+        .records(
+          indoc! {
+            b"
           foo
           foo
           : 1:2;foo
           : 1:2;foo
           "
-        }
-        .as_slice()
-      )
-      .collect::<Result<Vec<_>>>()
-      .unwrap(),
+          }
+          .as_slice()
+        )
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       vec![
         Record::new(
           Execution {
@@ -589,7 +605,8 @@ mod tests {
   #[test]
   fn timestamp_overflow() {
     assert_eq!(
-      Zsh::records(&b": 9223372037:1;foo"[..])
+      Shell::Zsh
+        .records(&b": 9223372037:1;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),

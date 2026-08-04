@@ -185,8 +185,9 @@ fn backup() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 1 executions from [ROOT]/history\n")
     .run()?;
 
@@ -224,8 +225,9 @@ fn backup() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 1 executions from [ROOT]/history\n")
     .run()?;
 
@@ -359,8 +361,9 @@ fn clear() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 1 executions from [ROOT]/history\n")
     .run()?;
 
@@ -496,8 +499,9 @@ fn import_bash() -> Result {
 
   test
     .command()
-    .arguments(["import", "bash"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("bash")
     .expected_stdout("imported 2 executions from [ROOT]/history\n")
     .run()?;
 
@@ -607,8 +611,9 @@ fn import_fish() -> Result {
 
   test
     .command()
-    .arguments(["import", "fish"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("fish")
     .expected_stdout("imported 2 executions from [ROOT]/history\n")
     .run()?;
 
@@ -657,8 +662,9 @@ fn import_zsh() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 2 executions from [ROOT]/history\n")
     .run()?;
 
@@ -697,8 +703,9 @@ fn import_zsh() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 0 executions from [ROOT]/history\n")
     .run()?;
 
@@ -872,8 +879,9 @@ fn list() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 1 executions from [ROOT]/history\n")
     .run()?;
 
@@ -896,8 +904,9 @@ fn search() -> Result {
 
   test
     .command()
-    .arguments(["import", "zsh"])
+    .arguments(["import", "--path"])
     .argument(&history)
+    .argument("zsh")
     .expected_stdout("imported 1 executions from [ROOT]/history\n")
     .run()?;
 

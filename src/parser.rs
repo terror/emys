@@ -1,23 +1,17 @@
 use super::*;
 
-mod bash;
-mod fish;
-mod zsh;
-
-pub(super) use {bash::Bash, fish::Fish, zsh::Zsh};
-
-pub(super) trait Parser: Default {
-  const FORMAT: &'static str;
-
-  fn decode(reader: impl Read) -> impl Read {
-    reader
-  }
-
+pub(super) trait Parser {
   fn finish(&mut self) -> Result<Option<Record>>;
 
   fn parse(&mut self, line: Line) -> Result<Option<Record>>;
+}
 
-  fn records(reader: impl Read) -> impl Iterator<Item = Result<Record>> {
-    Records::new(Self::decode(reader), Self::default())
+impl<T: Parser + ?Sized> Parser for Box<T> {
+  fn finish(&mut self) -> Result<Option<Record>> {
+    T::finish(self)
+  }
+
+  fn parse(&mut self, line: Line) -> Result<Option<Record>> {
+    T::parse(self, line)
   }
 }
