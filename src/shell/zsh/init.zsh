@@ -64,16 +64,16 @@ _emys_search() {
 
   local selected
   selected="$(command emys search --interactive -- "$BUFFER")"
-  local status="$?"
+  local exit_code="$?"
 
-  if (( status == 0 )) && [[ -n "$selected" ]]; then
+  if (( exit_code == 0 )) && [[ -n "$selected" ]]; then
     BUFFER="$selected"
     CURSOR="${#BUFFER}"
   fi
 
   zle redisplay
 
-  return "$status"
+  return "$exit_code"
 }
 
 add-zsh-hook preexec _emys_preexec
