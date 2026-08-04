@@ -38,13 +38,11 @@ impl Progress {
 
   pub(super) fn new(name: &'static str) -> Result<Self> {
     let bar = if io::stderr().is_terminal() {
-      let bar = ProgressBar::new_spinner();
-
-      bar.set_style(
-        ProgressStyle::with_template(SPINNER_STYLE)?.tick_chars(TICK_CHARS),
-      );
-
-      bar.set_message(format!("{name}: parsing"));
+      let bar = ProgressBar::new_spinner()
+        .with_style(
+          ProgressStyle::with_template(SPINNER_STYLE)?.tick_chars(TICK_CHARS),
+        )
+        .with_message(format!("{name}: parsing"));
 
       bar.enable_steady_tick(Duration::from_millis(50));
 
