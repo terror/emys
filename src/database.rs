@@ -27,7 +27,7 @@ impl Database {
       );
     }
 
-    let temporary = parent.join(format!(".emys-backup-{}.tmp", Uuid::new_v4()));
+    let temporary = parent.join(format!(".honu-backup-{}.tmp", Uuid::new_v4()));
 
     let result = (|| {
       let mut options = fs::OpenOptions::new();

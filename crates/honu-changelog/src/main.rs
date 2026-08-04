@@ -4,7 +4,7 @@ use {
   std::{fs, process::Command},
 };
 
-const REPO: &str = "terror/emys";
+const REPO: &str = "terror/honu";
 
 fn author(pr: u64) -> String {
   eprintln!("#{pr}");

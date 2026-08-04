@@ -599,28 +599,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e5e8f6c15a24b9a3ee5efec809ccd006d3b30e8b3bb63c39af737c7f87daa1d"
 
 [[package]]
-name = "emys"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "executable-path",
- "indoc",
- "rusqlite",
- "skim",
- "tempfile",
- "uuid",
- "xdg",
-]
-
-[[package]]
-name = "emys-changelog"
-version = "0.0.0"
-dependencies = [
- "regex",
-]
-
-[[package]]
 name = "env_filter"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -916,6 +894,28 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "honu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "executable-path",
+ "indoc",
+ "rusqlite",
+ "skim",
+ "tempfile",
+ "uuid",
+ "xdg",
+]
+
+[[package]]
+name = "honu-changelog"
+version = "0.0.0"
+dependencies = [
+ "regex",
+]
 
 [[package]]
 name = "ident_case"

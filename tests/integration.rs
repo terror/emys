@@ -64,7 +64,7 @@ impl Test {
   }
 
   fn database(&self) -> Result<Connection> {
-    Ok(Connection::open(self.path("emys/history.db"))?)
+    Ok(Connection::open(self.path("honu/history.db"))?)
   }
 
   fn environment(
@@ -107,7 +107,7 @@ impl Test {
       expected_status: 0,
       expected_stderr: String::new(),
       expected_stdout: String::new(),
-      tempdir: Rc::new(TempDir::with_prefix("emys-test")?),
+      tempdir: Rc::new(TempDir::with_prefix("honu-test")?),
     })
   }
 
@@ -177,7 +177,7 @@ fn add_record() -> Result {
 fn backup() -> Result {
   let test = Test::new()?;
 
-  let path = test.path("foo/bar/emys.sqlite");
+  let path = test.path("foo/bar/honu.sqlite");
 
   let history = test.path("history");
 
@@ -216,7 +216,7 @@ fn backup() -> Result {
     .argument(&path)
     .expected_status(1)
     .expected_stderr(
-      "error: backup `[ROOT]/foo/bar/emys.sqlite` already exists; use --force to overwrite it\n",
+      "error: backup `[ROOT]/foo/bar/honu.sqlite` already exists; use --force to overwrite it\n",
     )
     .run()?;
 
@@ -520,12 +520,12 @@ fn zsh_records_execution() -> Result {
     formatdoc! {
       "
         {script}
-        add-zsh-hook -d preexec _emys_preexec
-        add-zsh-hook -d precmd _emys_precmd
-        _emys_preexec 'foo'
+        add-zsh-hook -d preexec _honu_preexec
+        add-zsh-hook -d precmd _honu_precmd
+        _honu_preexec 'foo'
         false
-        _emys_precmd
-        _emys_precmd
+        _honu_precmd
+        _honu_precmd
         "
     }
     .as_bytes(),

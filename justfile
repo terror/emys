@@ -20,7 +20,7 @@ check:
 [group: 'check']
 ci: test clippy forbid
   cargo fmt --all -- --check
-  cargo update --locked --package emys
+  cargo update --locked --package honu
 
 [group: 'check']
 clippy:
@@ -40,7 +40,7 @@ forbid:
 
 [group: 'misc']
 install:
-  cargo install -f emys
+  cargo install -f honu
 
 [group: 'dev']
 install-dev-deps:
