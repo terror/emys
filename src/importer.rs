@@ -27,8 +27,7 @@ pub(super) trait Importer {
 
     let metadata = file.metadata()?;
 
-    let progress =
-      Progress::new(Self::NAME, metadata.is_file().then_some(metadata.len()))?;
+    let progress = Progress::new(Self::NAME)?;
 
     let reader: Box<dyn Read> = if metadata.is_file() {
       Box::new(file.take(metadata.len()))
