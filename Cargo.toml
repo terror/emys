@@ -4,14 +4,20 @@ version = "0.1.0"
 edition = "2024"
 description = "Back up and search shell history with SQLite"
 
-[lints.rust]
+[workspace]
+members = [".", "crates/*"]
+
+[workspace.lints.rust]
 unreachable_pub = "deny"
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 arbitrary-source-item-ordering = "deny"
 wildcard_imports = "allow"
+
+[lints]
+workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
