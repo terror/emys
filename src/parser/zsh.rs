@@ -78,7 +78,7 @@ pub(crate) struct Zsh {
 }
 
 impl Zsh {
-  fn complete(&mut self) -> Result<Option<Entry>> {
+  fn complete(&mut self) -> Result<Option<Record>> {
     let Some(line) = self.command_line.take() else {
       return Ok(None);
     };
@@ -124,22 +124,20 @@ impl Zsh {
 
       let duration_ns = nanoseconds(duration, "duration")?;
 
-      Ok(Some(Entry {
-        execution: Execution {
+      Ok(Some(Record::new(
+        Execution {
           command: command.into(),
           duration_ns: Some(duration_ns),
           timestamp_ns,
           ..Default::default()
         },
-        key: Key {
-          components: vec![
-            command.as_bytes().to_vec(),
-            timestamp_ns.to_be_bytes().to_vec(),
-            duration_ns.to_be_bytes().to_vec(),
-          ],
-          variant: b"extended".to_vec(),
-        },
-      }))
+        b"extended",
+        [
+          command.as_bytes().to_vec(),
+          timestamp_ns.to_be_bytes().to_vec(),
+          duration_ns.to_be_bytes().to_vec(),
+        ],
+      )))
     } else {
       self.plain_timestamp_ns = self
         .plain_timestamp_ns
@@ -148,17 +146,15 @@ impl Zsh {
 
       let components = vec![command.as_bytes().to_vec()];
 
-      Ok(Some(Entry {
-        execution: Execution {
+      Ok(Some(Record::new(
+        Execution {
           command,
           timestamp_ns: self.plain_timestamp_ns,
           ..Default::default()
         },
-        key: Key {
-          components,
-          variant: b"plain".to_vec(),
-        },
-      }))
+        b"plain",
+        components,
+      )))
     }
   }
 }
@@ -173,11 +169,11 @@ impl Parser for Zsh {
     }
   }
 
-  fn finish(&mut self) -> Result<Option<Entry>> {
+  fn finish(&mut self) -> Result<Option<Record>> {
     self.complete()
   }
 
-  fn parse(&mut self, mut line: Line) -> Result<Option<Entry>> {
+  fn parse(&mut self, mut line: Line) -> Result<Option<Record>> {
     let continued = line.terminated && line.bytes.ends_with(b"\\");
 
     if continued {
@@ -213,7 +209,7 @@ mod tests {
   #[test]
   fn commands_beginning_with_colon() {
     assert_eq!(
-      Zsh::entries(
+      Zsh::records(
         indoc! {
           b"
           : foo
@@ -226,39 +222,33 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        Entry {
-          execution: Execution {
+        Record::new(
+          Execution {
             command: ": foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b": foo".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b": foo".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: ": 1:x;bar".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b": 1:x;bar".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b": 1:x;bar".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: ": 1:2bar;baz".into(),
             timestamp_ns: 3,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b": 1:2bar;baz".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
+          b"plain",
+          [b": 1:2bar;baz".to_vec()],
+        ),
       ],
     );
   }
@@ -266,7 +256,7 @@ mod tests {
   #[test]
   fn duration_overflow() {
     assert_eq!(
-      Zsh::entries(&b": 1:9223372037;foo"[..])
+      Zsh::records(&b": 1:9223372037;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
@@ -275,19 +265,19 @@ mod tests {
   }
 
   #[test]
-  fn empty_input() {
+  fn empty_extended_command() {
     assert_eq!(
-      Zsh::entries(&b""[..]).collect::<Result<Vec<_>>>().unwrap(),
+      Zsh::records(&b": 1:2;"[..])
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
       Vec::new(),
     );
   }
 
   #[test]
-  fn empty_extended_command() {
+  fn empty_input() {
     assert_eq!(
-      Zsh::entries(&b": 1:2;"[..])
-        .collect::<Result<Vec<_>>>()
-        .unwrap(),
+      Zsh::records(&b""[..]).collect::<Result<Vec<_>>>().unwrap(),
       Vec::new(),
     );
   }
@@ -295,32 +285,30 @@ mod tests {
   #[test]
   fn extended_history() {
     assert_eq!(
-      Zsh::entries(&b": 1:2;foo"[..])
+      Zsh::records(&b": 1:2;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      vec![Entry {
-        execution: Execution {
+      vec![Record::new(
+        Execution {
           command: "foo".into(),
           duration_ns: Some(2_000_000_000),
           timestamp_ns: 1_000_000_000,
           ..Default::default()
         },
-        key: Key {
-          components: vec![
-            b"foo".to_vec(),
-            1_000_000_000_i64.to_be_bytes().to_vec(),
-            2_000_000_000_i64.to_be_bytes().to_vec(),
-          ],
-          variant: b"extended".to_vec(),
-        },
-      }],
+        b"extended",
+        [
+          b"foo".to_vec(),
+          1_000_000_000_i64.to_be_bytes().to_vec(),
+          2_000_000_000_i64.to_be_bytes().to_vec(),
+        ],
+      )],
     );
   }
 
   #[test]
   fn incomplete_metafied_byte() {
     assert_eq!(
-      Zsh::entries(&[META][..])
+      Zsh::records(&[META][..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),
@@ -331,40 +319,18 @@ mod tests {
   #[test]
   fn invalid_utf8_is_lossy() {
     assert_eq!(
-      Zsh::entries(&[0xFF][..])
+      Zsh::records(&[0xFF][..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      vec![Entry {
-        execution: Execution {
+      vec![Record::new(
+        Execution {
           command: "\u{FFFD}".into(),
           timestamp_ns: 1,
           ..Default::default()
         },
-        key: Key {
-          components: vec!["\u{FFFD}".as_bytes().to_vec()],
-          variant: b"plain".to_vec(),
-        },
-      }],
-    );
-  }
-
-  #[test]
-  fn metafied_unicode() {
-    assert_eq!(
-      Zsh::entries(&b"foo \xF0\x83\xBF\x83\xB8\x80"[..])
-        .collect::<Result<Vec<_>>>()
-        .unwrap(),
-      vec![Entry {
-        execution: Execution {
-          command: "foo \u{1F600}".into(),
-          timestamp_ns: 1,
-          ..Default::default()
-        },
-        key: Key {
-          components: vec!["foo \u{1F600}".as_bytes().to_vec()],
-          variant: b"plain".to_vec(),
-        },
-      }],
+        b"plain",
+        ["\u{FFFD}".as_bytes().to_vec()],
+      )],
     );
   }
 
@@ -373,19 +339,37 @@ mod tests {
     let contents = b"foo \xF0\x83\xBF\x83\xB8\x80";
 
     assert_eq!(
-      Zsh::entries(OneByte(io::Cursor::new(contents.to_vec())))
+      Zsh::records(OneByte(io::Cursor::new(contents.to_vec())))
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      Zsh::entries(&contents[..])
+      Zsh::records(&contents[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
     );
   }
 
   #[test]
+  fn metafied_unicode() {
+    assert_eq!(
+      Zsh::records(&b"foo \xF0\x83\xBF\x83\xB8\x80"[..])
+        .collect::<Result<Vec<_>>>()
+        .unwrap(),
+      vec![Record::new(
+        Execution {
+          command: "foo \u{1F600}".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+        b"plain",
+        ["foo \u{1F600}".as_bytes().to_vec()],
+      )],
+    );
+  }
+
+  #[test]
   fn mixed_history() {
     assert_eq!(
-      Zsh::entries(
+      Zsh::records(
         indoc! {
           b"
           foo
@@ -398,52 +382,46 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        Entry {
-          execution: Execution {
+        Record::new(
+          Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"foo".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b"foo".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: "bar".into(),
             duration_ns: Some(3_000_000_000),
             timestamp_ns: 2_000_000_000,
             ..Default::default()
           },
-          key: Key {
-            components: vec![
-              b"bar".to_vec(),
-              2_000_000_000_i64.to_be_bytes().to_vec(),
-              3_000_000_000_i64.to_be_bytes().to_vec(),
-            ],
-            variant: b"extended".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"extended",
+          [
+            b"bar".to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+            3_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+        ),
+        Record::new(
+          Execution {
             command: "baz".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"baz".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
+          b"plain",
+          [b"baz".to_vec()],
+        ),
       ],
     );
   }
 
   #[test]
-  fn multiline_entries() {
+  fn multiline_records() {
     assert_eq!(
-      Zsh::entries(
+      Zsh::records(
         indoc! {
           b"
           foo \x5C
@@ -457,33 +435,29 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        Entry {
-          execution: Execution {
+        Record::new(
+          Execution {
             command: "foo \nbar".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"foo \nbar".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b"foo \nbar".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: "baz \nqux".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          key: Key {
-            components: vec![
-              b"baz \nqux".to_vec(),
-              1_000_000_000_i64.to_be_bytes().to_vec(),
-              2_000_000_000_i64.to_be_bytes().to_vec(),
-            ],
-            variant: b"extended".to_vec(),
-          },
-        },
+          b"extended",
+          [
+            b"baz \nqux".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+        ),
       ],
     );
   }
@@ -499,10 +473,10 @@ mod tests {
     };
 
     assert_eq!(
-      Zsh::entries(&contents[..])
+      Zsh::records(&contents[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
-      Zsh::entries(&contents[..])
+      Zsh::records(&contents[..])
         .collect::<Result<Vec<_>>>()
         .unwrap(),
     );
@@ -511,7 +485,7 @@ mod tests {
   #[test]
   fn plain_history() {
     assert_eq!(
-      Zsh::entries(
+      Zsh::records(
         indoc! {
           b"
           foo
@@ -523,28 +497,24 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        Entry {
-          execution: Execution {
+        Record::new(
+          Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"foo".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b"foo".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: "bar".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"bar".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
+          b"plain",
+          [b"bar".to_vec()],
+        ),
       ],
     );
   }
@@ -552,7 +522,7 @@ mod tests {
   #[test]
   fn repeated_commands() {
     assert_eq!(
-      Zsh::entries(
+      Zsh::records(
         indoc! {
           b"
           foo
@@ -566,60 +536,52 @@ mod tests {
       .collect::<Result<Vec<_>>>()
       .unwrap(),
       vec![
-        Entry {
-          execution: Execution {
+        Record::new(
+          Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"foo".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b"foo".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: "foo".into(),
             timestamp_ns: 2,
             ..Default::default()
           },
-          key: Key {
-            components: vec![b"foo".to_vec()],
-            variant: b"plain".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"plain",
+          [b"foo".to_vec()],
+        ),
+        Record::new(
+          Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          key: Key {
-            components: vec![
-              b"foo".to_vec(),
-              1_000_000_000_i64.to_be_bytes().to_vec(),
-              2_000_000_000_i64.to_be_bytes().to_vec(),
-            ],
-            variant: b"extended".to_vec(),
-          },
-        },
-        Entry {
-          execution: Execution {
+          b"extended",
+          [
+            b"foo".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+        ),
+        Record::new(
+          Execution {
             command: "foo".into(),
             duration_ns: Some(2_000_000_000),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
           },
-          key: Key {
-            components: vec![
-              b"foo".to_vec(),
-              1_000_000_000_i64.to_be_bytes().to_vec(),
-              2_000_000_000_i64.to_be_bytes().to_vec(),
-            ],
-            variant: b"extended".to_vec(),
-          },
-        },
+          b"extended",
+          [
+            b"foo".to_vec(),
+            1_000_000_000_i64.to_be_bytes().to_vec(),
+            2_000_000_000_i64.to_be_bytes().to_vec(),
+          ],
+        ),
       ],
     );
   }
@@ -627,7 +589,7 @@ mod tests {
   #[test]
   fn timestamp_overflow() {
     assert_eq!(
-      Zsh::entries(&b": 9223372037:1;foo"[..])
+      Zsh::records(&b": 9223372037:1;foo"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap_err()
         .to_string(),

@@ -1,12 +1,12 @@
 use super::*;
 
-pub(super) struct Entries<R, P> {
+pub(super) struct Records<R, P> {
   done: bool,
   lines: Lines<R>,
   parser: P,
 }
 
-impl<R: Read, P: Parser> Entries<R, P> {
+impl<R: Read, P: Parser> Records<R, P> {
   pub(super) fn new(reader: R, parser: P) -> Self {
     Self {
       done: false,
@@ -16,8 +16,8 @@ impl<R: Read, P: Parser> Entries<R, P> {
   }
 }
 
-impl<R: Read, P: Parser> Iterator for Entries<R, P> {
-  type Item = Result<Entry>;
+impl<R: Read, P: Parser> Iterator for Records<R, P> {
+  type Item = Result<Record>;
 
   fn next(&mut self) -> Option<Self::Item> {
     if self.done {
@@ -35,7 +35,7 @@ impl<R: Read, P: Parser> Iterator for Entries<R, P> {
       };
 
       match result {
-        Ok(Some(entry)) => return Some(Ok(entry)),
+        Ok(Some(record)) => return Some(Ok(record)),
         Ok(None) if self.done => return None,
         Ok(None) => {}
         Err(error) => {
@@ -57,20 +57,18 @@ mod tests {
   impl Parser for TestParser {
     const FORMAT: &'static str = "test";
 
-    fn finish(&mut self) -> Result<Option<Entry>> {
-      Ok(Some(Entry {
-        execution: Execution {
+    fn finish(&mut self) -> Result<Option<Record>> {
+      Ok(Some(Record::new(
+        Execution {
           command: String::from_utf8(mem::take(&mut self.0)).unwrap(),
           ..Default::default()
         },
-        key: Key {
-          components: Vec::new(),
-          variant: Vec::new(),
-        },
-      }))
+        b"",
+        Vec::<Vec<u8>>::new(),
+      )))
     }
 
-    fn parse(&mut self, line: Line) -> Result<Option<Entry>> {
+    fn parse(&mut self, line: Line) -> Result<Option<Record>> {
       self.0.extend(line.bytes);
 
       if line.terminated {
@@ -82,9 +80,9 @@ mod tests {
   }
 
   #[test]
-  fn entries_flush_parser_at_eof() {
+  fn records_flush_parser_at_eof() {
     assert_eq!(
-      Entries::new(&b"foo\nbar"[..], TestParser(Vec::new()))
+      Records::new(&b"foo\nbar"[..], TestParser(Vec::new()))
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
         .execution

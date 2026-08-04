@@ -13,7 +13,15 @@ pub(super) trait Importer {
   fn import(&self, database: &Database) -> Result {
     let path = self.path()?;
 
-    let file = fs::File::open(&path).with_context(|| {
+    let source = fs::canonicalize(&path).with_context(|| {
+      format!(
+        "failed to resolve {} history `{}`",
+        Self::NAME,
+        path.display()
+      )
+    })?;
+
+    let file = fs::File::open(&source).with_context(|| {
       format!("failed to read {} history `{}`", Self::NAME, path.display())
     })?;
 
@@ -30,12 +38,8 @@ pub(super) trait Importer {
 
     let reader = progress.reader(reader);
 
-    let entries = Self::Parser::entries(reader);
-
-    let mut occurrences = HashMap::new();
-
-    let records = entries.map(|entry| {
-      let entry = entry.with_context(|| {
+    let records = Self::Parser::records(reader).map(|record| {
+      let mut record = record.with_context(|| {
         format!(
           "failed to parse {} history `{}`",
           Self::NAME,
@@ -43,24 +47,15 @@ pub(super) trait Importer {
         )
       })?;
 
-      let key = entry.key.identifier(Self::Parser::FORMAT, 0);
+      record.execution.shell = Some(Self::Parser::FORMAT.into());
 
-      let occurrence = occurrences.entry(key).or_insert(0_u64);
-
-      *occurrence = occurrence
-        .checked_add(1)
-        .context("history occurrence count overflowed")?;
-
-      let id = entry.key.identifier(Self::Parser::FORMAT, *occurrence);
-
-      let mut execution = entry.execution;
-
-      execution.shell = Some(Self::Parser::FORMAT.into());
-
-      Ok((id, execution))
+      Ok(record)
     });
 
-    let result = database.import(records, |status| progress.update(status));
+    let result =
+      database.import(Self::Parser::FORMAT, &source, records, |status| {
+        progress.update(status);
+      });
 
     progress.finish();
 
