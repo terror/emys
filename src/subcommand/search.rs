@@ -9,12 +9,9 @@ pub(crate) struct Search {
 }
 
 impl Search {
-  #[cfg(unix)]
   const BATCH_SIZE: usize = 256;
-  #[cfg(unix)]
   const CHANNEL_CAPACITY: usize = 8;
 
-  #[cfg(unix)]
   fn load_items(
     database: &Database,
     sender: &SkimItemSender,
@@ -50,12 +47,6 @@ impl Search {
     Ok(())
   }
 
-  #[cfg(not(unix))]
-  pub(crate) fn run(self, _database: Database) -> Result {
-    bail!("search is unsupported on this platform")
-  }
-
-  #[cfg(unix)]
   pub(crate) fn run(self, database: Database) -> Result {
     if !database.has_entries()? {
       return Ok(());

@@ -843,25 +843,11 @@ fn init_zsh() -> Result {
   Ok(())
 }
 
-#[cfg(unix)]
 #[test]
 fn search_empty() -> Result {
   Test::new()?
     .command()
     .arguments(["search", "--", "foo"])
-    .run()?;
-
-  Ok(())
-}
-
-#[cfg(not(unix))]
-#[test]
-fn search_unsupported() -> Result {
-  Test::new()?
-    .command()
-    .arguments(["search", "--", "foo"])
-    .expected_status(1)
-    .expected_stderr("error: search is unsupported on this platform\n")
     .run()?;
 
   Ok(())

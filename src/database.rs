@@ -101,7 +101,6 @@ impl Database {
     &self.connection
   }
 
-  #[cfg(unix)]
   pub(crate) fn for_each_command(
     &self,
     limit: usize,
@@ -130,7 +129,6 @@ impl Database {
     Ok(())
   }
 
-  #[cfg(unix)]
   pub(crate) fn has_entries(&self) -> Result<bool> {
     self
       .connection
@@ -818,7 +816,6 @@ mod tests {
     );
   }
 
-  #[cfg(unix)]
   #[test]
   fn for_each_command_orders_and_limits_unique_commands() {
     let database =

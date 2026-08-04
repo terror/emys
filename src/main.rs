@@ -15,12 +15,18 @@ use {
   records::Records,
   rusqlite::{Connection, MAIN_DB, Transaction, TransactionBehavior, params},
   shell::Shell,
+  skim::{
+    Skim, SkimItem, SkimItemSender, options::SkimOptionsBuilder,
+    prelude::bounded,
+  },
   std::{
     env, fs,
     io::{self, BufRead, BufReader, IsTerminal, Read},
     mem,
     path::{Path, PathBuf},
     process, str,
+    sync::Arc,
+    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
   subcommand::Subcommand,
@@ -29,15 +35,7 @@ use {
 
 #[cfg(unix)]
 use {
-  skim::{
-    Skim, SkimItem, SkimItemSender, options::SkimOptionsBuilder,
-    prelude::bounded,
-  },
-  std::{
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    sync::Arc,
-    thread,
-  },
+  std::os::unix::fs::{OpenOptionsExt, PermissionsExt},
   xdg::BaseDirectories,
 };
 
