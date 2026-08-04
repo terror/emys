@@ -86,7 +86,7 @@ _honu_debug() {
 
 _honu_search() {
   local selected
-  selected="$(command honu search --interactive -- "$READLINE_LINE")"
+  selected="$(command honu search -- "$READLINE_LINE")"
   local exit_code="$?"
 
   if (( exit_code == 0 )) && [[ -n "$selected" ]]; then

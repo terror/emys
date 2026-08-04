@@ -49,7 +49,7 @@ end
 
 function _honu_search
   set -l query (commandline | string collect)
-  set -l selected (command honu search --interactive -- "$query" | string collect)
+  set -l selected (command honu search -- "$query" | string collect)
   set -l exit_code $pipestatus[1]
 
   if test "$exit_code" -eq 0; and test -n "$selected"

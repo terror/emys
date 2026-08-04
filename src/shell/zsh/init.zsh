@@ -65,7 +65,7 @@ _honu_search() {
   zle -I
 
   local selected
-  selected="$(command honu search --interactive -- "$BUFFER")"
+  selected="$(command honu search -- "$BUFFER")"
   local exit_code="$?"
 
   if (( exit_code == 0 )) && [[ -n "$selected" ]]; then

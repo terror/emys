@@ -845,10 +845,10 @@ fn init_zsh() -> Result {
 
 #[cfg(unix)]
 #[test]
-fn interactive_search_empty() -> Result {
+fn search_empty() -> Result {
   Test::new()?
     .command()
-    .arguments(["search", "--interactive", "--", "foo"])
+    .arguments(["search", "--", "foo"])
     .run()?;
 
   Ok(())
@@ -856,14 +856,12 @@ fn interactive_search_empty() -> Result {
 
 #[cfg(not(unix))]
 #[test]
-fn interactive_search_unsupported() -> Result {
+fn search_unsupported() -> Result {
   Test::new()?
     .command()
-    .arguments(["search", "--interactive", "--", "foo"])
+    .arguments(["search", "--", "foo"])
     .expected_status(1)
-    .expected_stderr(
-      "error: interactive search is unsupported on this platform\n",
-    )
+    .expected_stderr("error: search is unsupported on this platform\n")
     .run()?;
 
   Ok(())
@@ -888,31 +886,6 @@ fn list() -> Result {
   test
     .command()
     .arguments(["list", "--limit", "1"])
-    .expected_stdout("1\t\tfoo\n")
-    .run()?;
-
-  Ok(())
-}
-
-#[test]
-fn search() -> Result {
-  let test = Test::new()?;
-
-  let history = test.path("history");
-
-  fs::write(&history, "foo\n")?;
-
-  test
-    .command()
-    .arguments(["import", "--path"])
-    .argument(&history)
-    .argument("zsh")
-    .expected_stdout("imported 1 entries from [ROOT]/history\n")
-    .run()?;
-
-  test
-    .command()
-    .arguments(["search", "--limit", "20", "FO"])
     .expected_stdout("1\t\tfoo\n")
     .run()?;
 
