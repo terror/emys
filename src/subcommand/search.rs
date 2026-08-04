@@ -1,11 +1,5 @@
 use super::*;
 
-#[cfg(unix)]
-const BATCH_SIZE: usize = 256;
-
-#[cfg(unix)]
-const CHANNEL_CAPACITY: usize = 8;
-
 #[derive(Debug, Parser)]
 pub(crate) struct Search {
   #[arg(short, long)]
@@ -18,8 +12,15 @@ pub(crate) struct Search {
 
 impl Search {
   #[cfg(unix)]
+  const BATCH_SIZE: usize = 256;
+  #[cfg(unix)]
+  const CHANNEL_CAPACITY: usize = 8;
+
+  #[cfg(unix)]
   fn load_items(database: &Database, sender: &SkimItemSender) -> Result {
-    let mut batch: Vec<Arc<dyn SkimItem>> = Vec::with_capacity(BATCH_SIZE);
+    let mut batch: Vec<Arc<dyn SkimItem>> =
+      Vec::with_capacity(Self::BATCH_SIZE);
+
     let mut flush_threshold = 1;
 
     database.for_each_command(|command| {
@@ -29,14 +30,14 @@ impl Search {
         return true;
       }
 
-      let next_batch = Vec::with_capacity(BATCH_SIZE);
-      let current_batch = mem::replace(&mut batch, next_batch);
+      let next_batch = Vec::with_capacity(Self::BATCH_SIZE);
 
-      if sender.send(current_batch).is_err() {
+      if sender.send(mem::replace(&mut batch, next_batch)).is_err() {
         return false;
       }
 
-      flush_threshold = BATCH_SIZE;
+      flush_threshold = Self::BATCH_SIZE;
+
       true
     })?;
 
@@ -72,7 +73,7 @@ impl Search {
       .query(&self.query)
       .build()?;
 
-    let (sender, receiver) = bounded(CHANNEL_CAPACITY);
+    let (sender, receiver) = bounded(Self::CHANNEL_CAPACITY);
 
     let loader = thread::spawn(move || Self::load_items(&database, &sender));
 
