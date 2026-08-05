@@ -47,22 +47,6 @@ impl Execution {
   }
 }
 
-trait ExpectedExecutions {
-  fn check(self, actual: Vec<Execution>);
-}
-
-impl<const N: usize> ExpectedExecutions for [Execution; N] {
-  fn check(self, actual: Vec<Execution>) {
-    pretty_assert_eq!(actual, self.into_iter().collect::<Vec<_>>());
-  }
-}
-
-impl ExpectedExecutions for usize {
-  fn check(self, actual: Vec<Execution>) {
-    pretty_assert_eq!(actual.len(), self);
-  }
-}
-
 #[derive(Clone, Copy)]
 enum Shell {
   Bash,
@@ -141,9 +125,30 @@ impl Test {
     self
   }
 
+  fn assert_execution_count(self, expected: i64) -> Self {
+    pretty_assert_eq!(
+      self
+        .database()
+        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
+          row.get::<_, i64>(0)
+        })
+        .unwrap(),
+      expected,
+    );
+
+    self
+  }
+
   #[track_caller]
-  fn assert_executions(self, expected: impl ExpectedExecutions) -> Self {
-    expected.check(self.executions());
+  fn assert_executions(
+    self,
+    expected: impl IntoIterator<Item = Execution>,
+  ) -> Self {
+    pretty_assert_eq!(
+      self.executions(),
+      expected.into_iter().collect::<Vec<_>>(),
+    );
+
     self
   }
 
@@ -185,7 +190,10 @@ impl Test {
           timestamp_ns: row.get(1)?,
           duration_ns: row.get(2)?,
           exit_code: row.get(3)?,
-          directory: row.get::<_, Option<String>>(4)?.map(PathBuf::from),
+          directory: row
+            .get::<_, Option<String>>(4)?
+            .map(PathBuf::from)
+            .map(|directory| directory.canonicalize().unwrap_or(directory)),
           session: row.get(5)?,
           hostname: row.get(6)?,
           shell: row.get(7)?,

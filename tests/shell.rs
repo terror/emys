@@ -16,7 +16,7 @@ fn bash_records_execution() {
       "
     })
     .status(1)
-    .assert_executions(1);
+    .assert_execution_count(1);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn fish_records_execution() {
       "
     })
     .status(1)
-    .assert_executions(1);
+    .assert_execution_count(1);
 }
 
 #[test]
@@ -119,5 +119,5 @@ fn zsh_records_execution() {
       "
     })
     .status(1)
-    .assert_executions(1);
+    .assert_execution_count(1);
 }
