@@ -302,22 +302,6 @@ impl Database {
       }
     }
 
-    transaction.execute("DELETE FROM commands", [])?;
-
-    transaction.execute(
-      "INSERT OR IGNORE INTO commands (
-         text,
-         timestamp_ns,
-         execution_id,
-         exit_code,
-         directory
-       )
-       SELECT command, timestamp_ns, id, exit_code, directory
-       FROM executions
-       ORDER BY timestamp_ns DESC, id DESC",
-      [],
-    )?;
-
     transaction.commit()?;
 
     Ok(inserted)
@@ -355,33 +339,6 @@ impl Database {
         execution.session,
         execution.hostname,
         execution.shell,
-      ],
-    )?;
-
-    transaction.execute(
-      "INSERT INTO commands (
-         text,
-         timestamp_ns,
-         execution_id,
-         exit_code,
-         directory
-       ) VALUES (?1, ?2, ?3, ?4, ?5)
-        ON CONFLICT (text) DO UPDATE SET
-          timestamp_ns = excluded.timestamp_ns,
-          execution_id = excluded.execution_id,
-          exit_code = excluded.exit_code,
-          directory = excluded.directory
-       WHERE excluded.timestamp_ns > commands.timestamp_ns
-         OR (
-           excluded.timestamp_ns = commands.timestamp_ns
-           AND excluded.execution_id > commands.execution_id
-         )",
-      params![
-        execution.command,
-        execution.timestamp_ns,
-        id.to_string(),
-        execution.exit_code,
-        directory,
       ],
     )?;
 
@@ -1004,6 +961,28 @@ mod tests {
 
     let imported = database.recent(20).unwrap();
 
+    database
+      .connection()
+      .execute_batch(
+        "CREATE TABLE command_changes (operation TEXT NOT NULL);
+         CREATE TRIGGER commands_insert_change
+         AFTER INSERT ON commands
+         BEGIN
+           INSERT INTO command_changes VALUES ('insert');
+         END;
+         CREATE TRIGGER commands_update_change
+         AFTER UPDATE ON commands
+         BEGIN
+           INSERT INTO command_changes VALUES ('update');
+         END;
+         CREATE TRIGGER commands_delete_change
+         AFTER DELETE ON commands
+         BEGIN
+           INSERT INTO command_changes VALUES ('delete');
+         END;",
+      )
+      .unwrap();
+
     assert_eq!(
       database
         .import(
@@ -1015,7 +994,18 @@ mod tests {
         .unwrap(),
       0,
     );
+
     assert_eq!(database.recent(20).unwrap(), imported);
+
+    assert_eq!(
+      database
+        .connection()
+        .query_row("SELECT COUNT(*) FROM command_changes", [], |row| {
+          row.get::<_, i64>(0)
+        })
+        .unwrap(),
+      0,
+    );
   }
 
   #[test]
@@ -1217,6 +1207,126 @@ mod tests {
       .unwrap();
 
     assert_eq!(commands, [("bar".into(), 2), ("foo".into(), 1)]);
+  }
+
+  #[test]
+  fn projection_follows_execution_updates_and_deletes() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    let first = database
+      .insert(&Execution {
+        command: "foo".into(),
+        timestamp_ns: 1,
+        ..Default::default()
+      })
+      .unwrap();
+
+    let second = database
+      .insert(&Execution {
+        command: "foo".into(),
+        timestamp_ns: 2,
+        ..Default::default()
+      })
+      .unwrap();
+
+    let third = database
+      .insert(&Execution {
+        command: "bar".into(),
+        timestamp_ns: 3,
+        ..Default::default()
+      })
+      .unwrap();
+
+    database
+      .connection()
+      .execute(
+        "UPDATE executions
+         SET command = 'bar', timestamp_ns = 4, exit_code = 5,
+             directory = '/foo'
+         WHERE id = ?1",
+        [second.to_string()],
+      )
+      .unwrap();
+
+    let commands = || {
+      let mut commands = Vec::new();
+
+      database
+        .for_each_command(None, |command| {
+          commands.push(command);
+          true
+        })
+        .unwrap();
+
+      commands
+    };
+
+    assert_eq!(
+      commands(),
+      [
+        Command {
+          text: "bar".into(),
+          timestamp_ns: 4,
+          exit_code: Some(5),
+          directory: Some("/foo".into()),
+        },
+        Command {
+          text: "foo".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+      ],
+    );
+
+    database
+      .connection()
+      .execute("DELETE FROM executions WHERE id = ?1", [second.to_string()])
+      .unwrap();
+
+    assert_eq!(
+      commands(),
+      [
+        Command {
+          text: "bar".into(),
+          timestamp_ns: 3,
+          ..Default::default()
+        },
+        Command {
+          text: "foo".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+      ],
+    );
+
+    database
+      .connection()
+      .execute("DELETE FROM executions WHERE id = ?1", [first.to_string()])
+      .unwrap();
+
+    database
+      .connection()
+      .execute("DELETE FROM executions WHERE id = ?1", [third.to_string()])
+      .unwrap();
+
+    assert_eq!(commands(), []);
+
+    assert!(
+      database
+        .connection()
+        .execute(
+          "INSERT INTO commands (
+             text,
+             timestamp_ns,
+             execution_id,
+             exit_code,
+             directory
+           ) VALUES ('foo', 0, 'bar', NULL, NULL)",
+          [],
+        )
+        .is_err(),
+    );
   }
 
   #[test]
