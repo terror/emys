@@ -917,10 +917,29 @@ mod tests {
       })
       .unwrap();
 
-    assert_eq!(commands.len(), 3);
-    assert_eq!(commands[2].text, "foo");
-    assert_eq!(commands[2].directory, Some("/baz".into()));
-    assert_eq!(commands[2].exit_code, Some(3));
+    assert_eq!(
+      commands,
+      [
+        Command {
+          directory: Some("/baz".into()),
+          exit_code: Some(3),
+          text: "foo".into(),
+          timestamp_ns: 3,
+        },
+        Command {
+          directory: Some("/bar".into()),
+          exit_code: Some(2),
+          text: "bar".into(),
+          timestamp_ns: 2,
+        },
+        Command {
+          directory: Some("/baz".into()),
+          exit_code: Some(3),
+          text: "foo".into(),
+          timestamp_ns: 3,
+        },
+      ],
+    );
 
     database
       .for_each_command(Some(0), |command| {
