@@ -24,50 +24,36 @@ impl Database {
       );
     }
 
-    let temporary = parent.join(format!(".honu-backup-{}.tmp", Uuid::new_v4()));
+    let temporary = NamedTempFile::new_in(parent)?;
 
-    let result = (|| {
-      let mut options = fs::OpenOptions::new();
+    self
+      .connection
+      .backup(MAIN_DB, temporary.path(), None)
+      .with_context(|| {
+        format!("failed to back up database to `{}`", path.display())
+      })?;
 
-      options.write(true).create_new(true);
+    #[cfg(unix)]
+    fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o600))?;
 
-      #[cfg(unix)]
-      options.mode(0o600);
+    let result = if force {
+      temporary.persist(path)
+    } else {
+      temporary.persist_noclobber(path)
+    };
 
-      drop(options.open(&temporary)?);
-
-      self
-        .connection
-        .backup(MAIN_DB, &temporary, None)
-        .with_context(|| {
-          format!("failed to back up database to `{}`", path.display())
-        })?;
-
-      #[cfg(unix)]
-      fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
-
-      if !force && path.try_exists()? {
+    if let Err(error) = result {
+      if !force && error.error.kind() == io::ErrorKind::AlreadyExists {
         bail!(
           "backup `{}` already exists; use --force to overwrite it",
           path.display(),
         );
       }
 
-      #[cfg(windows)]
-      if force && path.try_exists()? {
-        fs::remove_file(path)?;
-      }
-
-      fs::rename(&temporary, path)?;
-
-      Ok(())
-    })();
-
-    if result.is_err() {
-      let _ = fs::remove_file(temporary);
+      return Err(error.error.into());
     }
 
-    result
+    Ok(())
   }
 
   pub(crate) fn clear(&self) -> Result {
@@ -559,7 +545,7 @@ impl TryFrom<&Path> for Database {
 mod tests {
   use {
     super::*,
-    std::{collections::HashMap, iter},
+    std::{collections::HashMap, iter, sync::Barrier},
   };
 
   #[test]
@@ -640,6 +626,68 @@ mod tests {
       fs::metadata(destination).unwrap().permissions().mode() & 0o777,
       0o600,
     );
+  }
+
+  #[test]
+  fn backup_publication_does_not_clobber_concurrent_destination() {
+    let root = tempfile::tempdir().unwrap();
+
+    let (source, destination) =
+      (root.path().join("foo"), root.path().join("bar"));
+
+    Database::open(&source)
+      .unwrap()
+      .insert(&Execution {
+        command: "foo".into(),
+        ..Default::default()
+      })
+      .unwrap();
+
+    let barrier = Barrier::new(8);
+
+    let results = thread::scope(|scope| {
+      (0..8)
+        .map(|_| {
+          let database = Database::open(&source).unwrap();
+
+          let (barrier, destination) = (&barrier, &destination);
+
+          scope.spawn(move || {
+            barrier.wait();
+            database.backup(destination, false)
+          })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect::<Vec<_>>()
+    });
+
+    let errors = results
+      .into_iter()
+      .filter_map(Result::err)
+      .collect::<Vec<_>>();
+
+    assert_eq!(errors.len(), 7);
+
+    assert_eq!(
+      Database::open(&destination)
+        .unwrap()
+        .recent(20)
+        .unwrap()
+        .len(),
+      1,
+    );
+
+    for error in errors {
+      assert_eq!(
+        error.to_string(),
+        format!(
+          "backup `{}` already exists; use --force to overwrite it",
+          destination.display(),
+        ),
+      );
+    }
   }
 
   #[test]
