@@ -18,13 +18,8 @@ impl Search {
 
     let mut flush_threshold = 1;
 
-    let now_ns = i64::try_from(
-      SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock precedes the Unix epoch")?
-        .as_nanos(),
-    )
-    .context("system time exceeds SQLite integer range")?;
+    let now_ns =
+      i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos())?;
 
     database.for_each_command(self.limit, |command| {
       batch.push(Arc::new(Choice { command, now_ns }));
@@ -58,7 +53,12 @@ impl Search {
 
     let options = SkimOptionsBuilder::default()
       .color(
-        "none,current:6:bold,matched:-1:underlined,current_match:6:bold:underlined,info:-1:dim,spinner:-1:dim",
+        "none, \
+         current:6:bold, \
+         matched:-1:underlined, \
+         current_match:6:bold:underlined, \
+         info:-1:dim, \
+         spinner:-1:dim",
       )
       .height("40%")
       .info("left")
