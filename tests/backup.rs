@@ -48,3 +48,37 @@ fn backup() {
     .success()
     .assert_database("foo/bar/honu.sqlite", 2);
 }
+
+#[test]
+fn backup_is_usable_application_database() {
+  let test = Test::new()
+    .write("history", "foo\n")
+    .arguments(["import", "--path", "history", "zsh"])
+    .stdout("imported 1 executions from history\n")
+    .success()
+    .arguments(["backup", "backup/honu/history.db"])
+    .success();
+
+  let backup = test.path("backup");
+
+  let test = test
+    .env("XDG_DATA_HOME", &backup)
+    .arguments(["import", "--path", "history", "zsh"])
+    .stdout("imported 0 executions from history\n")
+    .success();
+
+  fs::OpenOptions::new()
+    .append(true)
+    .open(test.path("history"))
+    .unwrap()
+    .write_all(b"bar\n")
+    .unwrap();
+
+  test
+    .env("XDG_DATA_HOME", backup)
+    .arguments(["import", "--path", "history", "zsh"])
+    .stdout("imported 1 executions from history\n")
+    .success()
+    .assert_execution_count(1)
+    .assert_database("backup/honu/history.db", 2);
+}
