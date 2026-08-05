@@ -164,6 +164,17 @@ impl Test {
     self
   }
 
+  fn execution_id(&self, command: &str) -> String {
+    self
+      .database()
+      .query_row(
+        "SELECT id FROM executions WHERE command = ?1",
+        [command],
+        |row| row.get(0),
+      )
+      .unwrap()
+  }
+
   fn executions(&self) -> Vec<Execution> {
     let connection = self.database();
 
