@@ -163,5 +163,5 @@ fn zsh() {
     .arguments(["import", "--path", "history", "zsh"])
     .stdout("imported 0 executions from history\n")
     .success()
-    .assert_execution_count(2);
+    .assert_executions(2);
 }

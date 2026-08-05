@@ -5,7 +5,7 @@ fn defaults() {
   Test::new()
     .arguments(["add", "--", "foo"])
     .success()
-    .assert_recorded();
+    .assert_executions(1);
 }
 
 #[test]

@@ -9,5 +9,5 @@ fn clear() {
     .success()
     .argument("clear")
     .success()
-    .assert_execution_count(0);
+    .assert_executions(0);
 }

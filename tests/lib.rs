@@ -47,6 +47,22 @@ impl Execution {
   }
 }
 
+trait ExpectedExecutions {
+  fn check(self, actual: Vec<Execution>);
+}
+
+impl<const N: usize> ExpectedExecutions for [Execution; N] {
+  fn check(self, actual: Vec<Execution>) {
+    pretty_assert_eq!(actual, self.into_iter().collect::<Vec<_>>());
+  }
+}
+
+impl ExpectedExecutions for usize {
+  fn check(self, actual: Vec<Execution>) {
+    pretty_assert_eq!(actual.len(), self);
+  }
+}
+
 #[derive(Clone, Copy)]
 enum Shell {
   Bash,
@@ -125,35 +141,10 @@ impl Test {
     self
   }
 
-  fn assert_execution_count(self, expected: i64) -> Self {
-    pretty_assert_eq!(
-      self
-        .database()
-        .query_row("SELECT COUNT(*) FROM executions", [], |row| {
-          row.get::<_, i64>(0)
-        })
-        .unwrap(),
-      expected,
-    );
-
-    self
-  }
-
-  fn assert_executions(
-    self,
-    expected: impl IntoIterator<Item = Execution>,
-  ) -> Self {
-    pretty_assert_eq!(
-      self.executions(),
-      expected.into_iter().collect::<Vec<_>>(),
-    );
-
-    self
-  }
-
   #[track_caller]
-  fn assert_recorded(self) {
-    pretty_assert_eq!(self.executions().len(), 1);
+  fn assert_executions(self, expected: impl ExpectedExecutions) -> Self {
+    expected.check(self.executions());
+    self
   }
 
   fn database(&self) -> Connection {
