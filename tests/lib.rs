@@ -84,11 +84,11 @@ struct Test {
 }
 
 impl Test {
-  fn arg(self, argument: impl AsRef<OsStr>) -> Self {
-    self.args([argument])
+  fn argument(self, argument: impl AsRef<OsStr>) -> Self {
+    self.arguments([argument])
   }
 
-  fn args<I, S>(mut self, arguments: I) -> Self
+  fn arguments<I, S>(mut self, arguments: I) -> Self
   where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -237,7 +237,7 @@ impl Test {
 
     self
       .program(shell.name())
-      .args(shell.arguments())
+      .arguments(shell.arguments())
       .env("PATH", path)
   }
 

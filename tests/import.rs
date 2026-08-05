@@ -16,7 +16,7 @@ fn bash() {
         "#
       },
     )
-    .args(["import", "--path", "history", "bash"])
+    .arguments(["import", "--path", "history", "bash"])
     .stdout("imported 2 executions from history\n")
     .success()
     .assert_executions([
@@ -64,16 +64,16 @@ fn defaults_are_shell_specific() {
   test
     .env("HISTFILE", &history)
     .env("HOME", &home)
-    .args(["import", "zsh"])
+    .arguments(["import", "zsh"])
     .stdout("imported 1 executions from [ROOT]/.zsh_history\n")
     .success()
     .env("HISTFILE", &history)
     .env("HOME", &home)
-    .args(["import", "bash"])
+    .arguments(["import", "bash"])
     .stdout("imported 1 executions from [ROOT]/.bash_history\n")
     .success()
     .env("HOME", &home)
-    .args(["import", "fish"])
+    .arguments(["import", "fish"])
     .stdout("imported 1 executions from [ROOT]/fish/fish_history\n")
     .success()
     .assert_executions([
@@ -109,7 +109,7 @@ fn fish() {
         "
       },
     )
-    .args(["import", "--path", "history", "fish"])
+    .arguments(["import", "--path", "history", "fish"])
     .stdout("imported 2 executions from history\n")
     .success()
     .assert_executions([
@@ -146,7 +146,7 @@ fn zsh() {
         "
       },
     )
-    .args(["import", "--path", "history", "zsh"])
+    .arguments(["import", "--path", "history", "zsh"])
     .stdout("imported 2 executions from history\n")
     .success()
     .assert_executions([
@@ -160,7 +160,7 @@ fn zsh() {
         ..Execution::new("cargo test", 1_700_000_000_000_000_000)
       },
     ])
-    .args(["import", "--path", "history", "zsh"])
+    .arguments(["import", "--path", "history", "zsh"])
     .stdout("imported 0 executions from history\n")
     .success()
     .assert_execution_count(2);

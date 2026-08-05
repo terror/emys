@@ -75,7 +75,7 @@ fn fish_records_execution() {
 fn init_bash() {
   Test::new()
     .program("bash")
-    .arg("-n")
+    .argument("-n")
     .stdin(include_str!("../src/shell/bash/init.bash"))
     .success();
 }
@@ -85,7 +85,7 @@ fn init_bash() {
 fn init_fish() {
   Test::new()
     .program("fish")
-    .arg("-n")
+    .argument("-n")
     .stdin(include_str!("../src/shell/fish/init.fish"))
     .success();
 }
@@ -95,7 +95,7 @@ fn init_fish() {
 fn init_zsh() {
   Test::new()
     .program("zsh")
-    .arg("-n")
+    .argument("-n")
     .stdin(include_str!("../src/shell/zsh/init.zsh"))
     .success();
 }

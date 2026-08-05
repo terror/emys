@@ -5,7 +5,7 @@ fn shells() {
   #[track_caller]
   fn case(shell: &str, expected: &str) {
     Test::new()
-      .args(["init", shell])
+      .arguments(["init", shell])
       .stdout(&expected.replace('\\', "/"))
       .success();
   }

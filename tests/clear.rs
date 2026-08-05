@@ -4,10 +4,10 @@ use super::*;
 fn clear() {
   Test::new()
     .write("history", "foo\n")
-    .args(["import", "--path", "history", "zsh"])
+    .arguments(["import", "--path", "history", "zsh"])
     .stdout("imported 1 executions from history\n")
     .success()
-    .arg("clear")
+    .argument("clear")
     .success()
     .assert_execution_count(0);
 }

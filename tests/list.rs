@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn list() {
   Test::new()
-    .args([
+    .arguments([
       "add",
       "--timestamp-ns",
       "1",
@@ -13,7 +13,7 @@ fn list() {
       "foo",
     ])
     .success()
-    .args([
+    .arguments([
       "add",
       "--timestamp-ns",
       "2",
@@ -23,7 +23,7 @@ fn list() {
       "bar",
     ])
     .success()
-    .arg("list")
+    .argument("list")
     .stdout(indoc! {
       "
       2\t0\tbar
@@ -31,9 +31,9 @@ fn list() {
       "
     })
     .success()
-    .args(["list", "--limit", "1"])
+    .arguments(["list", "--limit", "1"])
     .stdout("2\t0\tbar\n")
     .success()
-    .args(["list", "--limit", "0"])
+    .arguments(["list", "--limit", "0"])
     .success();
 }
