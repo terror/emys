@@ -53,11 +53,11 @@ impl Search {
 
     let options = SkimOptionsBuilder::default()
       .color(
-        "none, \
-         current:6:bold, \
-         matched:-1:underlined, \
-         current_match:6:bold:underlined, \
-         info:-1:dim, \
+        "none,\
+         current:6:bold,\
+         matched:-1:underlined,\
+         current_match:6:bold:underlined,\
+         info:-1:dim,\
          spinner:-1:dim",
       )
       .height("40%")
