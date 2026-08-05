@@ -38,7 +38,7 @@ impl Add {
       env::current_dir()?
     };
 
-    database.insert(&Entry {
+    database.insert(&Execution {
       command: self.command,
       timestamp_ns,
       duration_ns: self.duration_ns,

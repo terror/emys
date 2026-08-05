@@ -1,11 +1,11 @@
 use super::*;
 
-pub(crate) struct Candidate {
+pub(crate) struct Choice {
   command: Command,
   now_ns: i64,
 }
 
-impl Candidate {
+impl Choice {
   const DIRECTORY_WIDTH: usize = 9;
   const EARLIEST_TIMESTAMP_NS: i64 = 1_000_000_000_000_000_000;
   const EXIT_CODE_WIDTH: usize = 5;
@@ -67,6 +67,7 @@ impl Candidate {
 
   fn directory_column(&self) -> String {
     let mut directory = self.directory();
+
     let width =
       usize::try_from(unicode_display_width::width(&directory)).unwrap();
 
@@ -129,7 +130,7 @@ impl Candidate {
   }
 }
 
-impl SkimItem for Candidate {
+impl SkimItem for Choice {
   fn display(&self, context: DisplayContext) -> ratatui::text::Line<'_> {
     let metadata = context
       .base_style
@@ -172,13 +173,13 @@ mod tests {
 
   const NOW: i64 = 2_000_000_000_000_000_000;
 
-  fn candidate(command: Command) -> Candidate {
-    Candidate::new(command, NOW)
+  fn choice(command: Command) -> Choice {
+    Choice::new(command, NOW)
   }
 
   #[test]
   fn display_aligns_age_directory_command_and_nonzero_exit_code() {
-    let item = candidate(Command {
+    let item = choice(Command {
       directory: Some("/foo".into()),
       exit_code: Some(1),
       text: "bar".into(),
@@ -209,7 +210,7 @@ mod tests {
     #[track_caller]
     fn case(directory: &str, expected: &str) {
       assert_eq!(
-        candidate(Command {
+        choice(Command {
           directory: Some(directory.into()),
           ..Default::default()
         })
@@ -225,7 +226,7 @@ mod tests {
   #[test]
   fn display_hides_zero_exit_code_and_uses_cwd_basename() {
     assert_eq!(
-      candidate(Command {
+      choice(Command {
         directory: Some("/foo/baz".into()),
         exit_code: Some(0),
         text: "bar".into(),
@@ -239,7 +240,7 @@ mod tests {
   #[test]
   fn display_keeps_multiline_commands_on_one_row() {
     assert_eq!(
-      candidate(Command {
+      choice(Command {
         text: "foo\n\tbar".into(),
         timestamp_ns: NOW,
         ..Default::default()
@@ -251,7 +252,7 @@ mod tests {
 
   #[test]
   fn display_preserves_empty_metadata_columns() {
-    let item = candidate(Command {
+    let item = choice(Command {
       text: "foo".into(),
       timestamp_ns: 1,
       ..Default::default()
@@ -269,7 +270,7 @@ mod tests {
     #[track_caller]
     fn case(age_seconds: i64, expected: &str) {
       assert_eq!(
-        candidate(Command {
+        choice(Command {
           timestamp_ns: NOW - age_seconds * 1_000_000_000,
           ..Default::default()
         })
@@ -286,7 +287,7 @@ mod tests {
     case(2 * 365 * 24 * 60 * 60, "2y");
 
     assert_eq!(
-      candidate(Command {
+      choice(Command {
         timestamp_ns: NOW + 1,
         ..Default::default()
       })
@@ -295,7 +296,7 @@ mod tests {
     );
 
     assert_eq!(
-      candidate(Command {
+      choice(Command {
         timestamp_ns: 1,
         ..Default::default()
       })
@@ -306,7 +307,7 @@ mod tests {
 
   #[test]
   fn skim_item_matches_and_outputs_original_command() {
-    let item = candidate(Command {
+    let item = choice(Command {
       directory: Some("/baz".into()),
       exit_code: Some(1),
       text: "foo\nbar".into(),

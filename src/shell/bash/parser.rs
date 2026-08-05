@@ -36,7 +36,7 @@ impl Parser {
         })?;
 
       Ok(Some(Record::new(
-        Entry {
+        Execution {
           command: command.clone(),
           timestamp_ns,
           ..Default::default()
@@ -54,7 +54,7 @@ impl Parser {
         .context("plain history timestamp exceeds SQLite integer range")?;
 
       Ok(Some(Record::new(
-        Entry {
+        Execution {
           command: command.clone(),
           timestamp_ns: self.plain_timestamp_ns,
           ..Default::default()
@@ -116,7 +116,7 @@ mod tests {
   use {super::*, indoc::indoc};
 
   #[test]
-  fn empty_input_and_entries_are_ignored() {
+  fn empty_input_and_records_are_ignored() {
     #[track_caller]
     fn case(history: &[u8]) {
       assert_eq!(
@@ -155,7 +155,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Entry {
+          Execution {
             command: "foo".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -164,7 +164,7 @@ mod tests {
           [b"foo".as_slice()],
         ),
         Record::new(
-          Entry {
+          Execution {
             command: "bar\nbaz".into(),
             timestamp_ns: 1_000_000_000,
             ..Default::default()
@@ -176,7 +176,7 @@ mod tests {
           ],
         ),
         Record::new(
-          Entry {
+          Execution {
             command: "qux".into(),
             timestamp_ns: 2_000_000_000,
             ..Default::default()
@@ -198,7 +198,7 @@ mod tests {
         .records(&[0xFF][..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
-        .entry
+        .execution
         .command,
       "\u{FFFD}",
     );
@@ -212,7 +212,7 @@ mod tests {
         .collect::<Result<Vec<_>>>()
         .unwrap()
         .into_iter()
-        .map(|record| record.entry.command)
+        .map(|record| record.execution.command)
         .collect::<Vec<_>>(),
       ["#", "#foo"],
     );
@@ -225,8 +225,8 @@ mod tests {
         .records(&b"#1foo\nbar"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
-        .entry,
-      Entry {
+        .execution,
+      Execution {
         command: "bar".into(),
         timestamp_ns: 1_000_000_000,
         ..Default::default()

@@ -2,13 +2,13 @@ use super::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Record {
-  pub(super) entry: Entry,
+  pub(super) execution: Execution,
   pub(super) fingerprint: Vec<u8>,
 }
 
 impl Record {
   pub(super) fn new(
-    entry: Entry,
+    execution: Execution,
     variant: &[u8],
     components: impl IntoIterator<Item = impl AsRef<[u8]>>,
   ) -> Self {
@@ -29,7 +29,10 @@ impl Record {
       fingerprint.extend_from_slice(component);
     }
 
-    Self { entry, fingerprint }
+    Self {
+      execution,
+      fingerprint,
+    }
   }
 }
 
@@ -40,7 +43,8 @@ mod tests {
   #[test]
   fn fingerprints_encode_boundaries() {
     let fingerprint =
-      Record::new(Entry::default(), b"foo", [b"bar".as_slice()]).fingerprint;
+      Record::new(Execution::default(), b"foo", [b"bar".as_slice()])
+        .fingerprint;
 
     assert_eq!(
       fingerprint,
@@ -52,13 +56,13 @@ mod tests {
 
     assert_ne!(
       Record::new(
-        Entry::default(),
+        Execution::default(),
         b"foo",
         [b"a".as_slice(), b"bc".as_slice()],
       )
       .fingerprint,
       Record::new(
-        Entry::default(),
+        Execution::default(),
         b"foo",
         [b"ab".as_slice(), b"c".as_slice()],
       )
