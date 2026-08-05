@@ -1,8 +1,8 @@
 use super::*;
 
 pub(crate) struct Choice {
-  command: Command,
-  now_ns: i64,
+  pub(crate) command: Command,
+  pub(crate) now_ns: i64,
 }
 
 impl Choice {
@@ -82,10 +82,6 @@ impl Choice {
       .filter(|code| *code != 0)
       .map(|code| format!("[{code}]"))
       .unwrap_or_default()
-  }
-
-  pub(crate) fn new(command: Command, now_ns: i64) -> Self {
-    Self { command, now_ns }
   }
 
   fn relative_age(&self) -> String {
@@ -173,18 +169,17 @@ mod tests {
 
   const NOW: i64 = 2_000_000_000_000_000_000;
 
-  fn choice(command: Command) -> Choice {
-    Choice::new(command, NOW)
-  }
-
   #[test]
   fn display_aligns_age_directory_command_and_nonzero_exit_code() {
-    let item = choice(Command {
-      directory: Some("/foo".into()),
-      exit_code: Some(1),
-      text: "bar".into(),
-      timestamp_ns: NOW - 12_000_000_000,
-    });
+    let item = Choice {
+      command: Command {
+        directory: Some("/foo".into()),
+        exit_code: Some(1),
+        text: "bar".into(),
+        timestamp_ns: NOW - 12_000_000_000,
+      },
+      now_ns: NOW,
+    };
 
     assert_eq!(item.row(), " 12s  foo        [1]    bar");
     assert_eq!(
@@ -210,10 +205,13 @@ mod tests {
     #[track_caller]
     fn case(directory: &str, expected: &str) {
       assert_eq!(
-        choice(Command {
-          directory: Some(directory.into()),
-          ..Default::default()
-        })
+        Choice {
+          command: Command {
+            directory: Some(directory.into()),
+            ..Default::default()
+          },
+          now_ns: NOW,
+        }
         .directory(),
         expected,
       );
@@ -226,12 +224,15 @@ mod tests {
   #[test]
   fn display_hides_zero_exit_code_and_uses_cwd_basename() {
     assert_eq!(
-      choice(Command {
-        directory: Some("/foo/baz".into()),
-        exit_code: Some(0),
-        text: "bar".into(),
-        timestamp_ns: NOW - 8 * 60 * 1_000_000_000,
-      })
+      Choice {
+        command: Command {
+          directory: Some("/foo/baz".into()),
+          exit_code: Some(0),
+          text: "bar".into(),
+          timestamp_ns: NOW - 8 * 60 * 1_000_000_000,
+        },
+        now_ns: NOW,
+      }
       .row(),
       "  8m  baz               bar",
     );
@@ -240,11 +241,14 @@ mod tests {
   #[test]
   fn display_keeps_multiline_commands_on_one_row() {
     assert_eq!(
-      choice(Command {
-        text: "foo\n\tbar".into(),
-        timestamp_ns: NOW,
-        ..Default::default()
-      })
+      Choice {
+        command: Command {
+          text: "foo\n\tbar".into(),
+          timestamp_ns: NOW,
+          ..Default::default()
+        },
+        now_ns: NOW,
+      }
       .row(),
       "  0s                    foo  bar",
     );
@@ -252,11 +256,14 @@ mod tests {
 
   #[test]
   fn display_preserves_empty_metadata_columns() {
-    let item = choice(Command {
-      text: "foo".into(),
-      timestamp_ns: 1,
-      ..Default::default()
-    });
+    let item = Choice {
+      command: Command {
+        text: "foo".into(),
+        timestamp_ns: 1,
+        ..Default::default()
+      },
+      now_ns: NOW,
+    };
 
     assert_eq!(item.row(), "                        foo");
     assert_eq!(
@@ -270,10 +277,13 @@ mod tests {
     #[track_caller]
     fn case(age_seconds: i64, expected: &str) {
       assert_eq!(
-        choice(Command {
-          timestamp_ns: NOW - age_seconds * 1_000_000_000,
-          ..Default::default()
-        })
+        Choice {
+          command: Command {
+            timestamp_ns: NOW - age_seconds * 1_000_000_000,
+            ..Default::default()
+          },
+          now_ns: NOW,
+        }
         .relative_age(),
         expected,
       );
@@ -287,19 +297,25 @@ mod tests {
     case(2 * 365 * 24 * 60 * 60, "2y");
 
     assert_eq!(
-      choice(Command {
-        timestamp_ns: NOW + 1,
-        ..Default::default()
-      })
+      Choice {
+        command: Command {
+          timestamp_ns: NOW + 1,
+          ..Default::default()
+        },
+        now_ns: NOW,
+      }
       .relative_age(),
       "0s",
     );
 
     assert_eq!(
-      choice(Command {
-        timestamp_ns: 1,
-        ..Default::default()
-      })
+      Choice {
+        command: Command {
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+        now_ns: NOW,
+      }
       .relative_age(),
       "",
     );
@@ -307,12 +323,15 @@ mod tests {
 
   #[test]
   fn skim_item_matches_and_outputs_original_command() {
-    let item = choice(Command {
-      directory: Some("/baz".into()),
-      exit_code: Some(1),
-      text: "foo\nbar".into(),
-      ..Default::default()
-    });
+    let item = Choice {
+      command: Command {
+        directory: Some("/baz".into()),
+        exit_code: Some(1),
+        text: "foo\nbar".into(),
+        ..Default::default()
+      },
+      now_ns: NOW,
+    };
 
     assert_eq!(item.text(), "foo\nbar");
     assert_eq!(item.output(), "foo\nbar");
