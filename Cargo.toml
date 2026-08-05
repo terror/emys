@@ -3,6 +3,7 @@ name = "honu"
 version = "0.1.0"
 edition = "2024"
 description = "Back up and search shell history with SQLite"
+autotests = false
 
 [workspace]
 members = [".", "crates/*"]
@@ -36,3 +37,7 @@ xdg = "3.0.0"
 executable-path = "1.0.1"
 indoc = "2.0.7"
 tempfile = "3.27.0"
+
+[[test]]
+name = "integration"
+path = "tests/lib.rs"
