@@ -35,6 +35,7 @@ use {
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
+  str_ext::StrExt,
   subcommand::Subcommand,
   tally::Tally,
   unicode_segmentation::UnicodeSegmentation,
@@ -59,6 +60,7 @@ mod progress;
 mod record;
 mod records;
 mod shell;
+mod str_ext;
 mod subcommand;
 mod tally;
 

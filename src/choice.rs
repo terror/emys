@@ -31,36 +31,12 @@ impl Choice {
       .directory
       .as_deref()
       .map(|directory| {
-        directory
+        let directory = directory
           .file_name()
           .unwrap_or(directory.as_os_str())
-          .to_string_lossy()
-          .into_owned()
-      })
-      .map(|directory| {
-        if unicode_display_width::width(&directory)
-          <= u64::try_from(Self::DIRECTORY_WIDTH).unwrap()
-        {
-          return directory;
-        }
+          .to_string_lossy();
 
-        let mut truncated = String::new();
-        let width = u64::try_from(Self::DIRECTORY_WIDTH).unwrap() - 1;
-        let mut used = 0;
-
-        for grapheme in directory.graphemes(true) {
-          let grapheme_width = unicode_display_width::width(grapheme);
-
-          if used + grapheme_width > width {
-            break;
-          }
-
-          truncated.push_str(grapheme);
-          used += grapheme_width;
-        }
-
-        truncated.push('…');
-        truncated
+        directory.truncate(Self::DIRECTORY_WIDTH).into_owned()
       })
       .unwrap_or_default()
   }
