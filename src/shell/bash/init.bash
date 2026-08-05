@@ -7,6 +7,7 @@ __honu_command=""
 __honu_directory=""
 __honu_started_at=""
 __honu_ready=""
+__honu_history_number=""
 
 _honu_preexec() {
   __honu_command="$1"
@@ -56,6 +57,10 @@ _honu_precmd() {
 }
 
 _honu_arm() {
+  local history
+  history="$(HISTTIMEFORMAT= builtin history 1)"
+  history="${history#"${history%%[![:space:]]*}"}"
+  __honu_history_number="${history%%[[:space:]]*}"
   __honu_ready=1
 }
 
@@ -72,10 +77,12 @@ _honu_debug() {
   local history
   history="$(HISTTIMEFORMAT= builtin history 1)"
   history="${history#"${history%%[![:space:]]*}"}"
+  local history_number="${history%%[[:space:]]*}"
   history="${history#*[[:space:]]}"
   history="${history#"${history%%[![:space:]]*}"}"
 
-  if [[ -n "$history" ]]; then
+  if [[ -n "$history_number" && -n "$history" ]] &&
+    (( 10#$history_number > 10#${__honu_history_number:-0} )); then
     command="$history"
   fi
 
@@ -118,5 +125,5 @@ _honu_debug \"\$?\"" DEBUG
   fi
 
   bind -x '"\C-r":_honu_search'
-  __honu_ready=1
+  _honu_arm
 fi
