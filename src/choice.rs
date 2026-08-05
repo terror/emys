@@ -6,7 +6,7 @@ pub(crate) struct Choice {
 }
 
 impl Choice {
-  const DIRECTORY_WIDTH: usize = 9;
+  const DIRECTORY_WIDTH: usize = 12;
   const EARLIEST_TIMESTAMP_NS: i64 = 1_000_000_000_000_000_000;
   const EXIT_CODE_WIDTH: usize = 5;
 
@@ -26,29 +26,16 @@ impl Choice {
   }
 
   fn directory(&self) -> String {
-    self
+    let directory = self
       .command
-      .directory
-      .as_deref()
-      .map(|directory| {
-        let directory = directory
-          .file_name()
-          .unwrap_or(directory.as_os_str())
-          .to_string_lossy();
-
-        directory.truncate(Self::DIRECTORY_WIDTH).into_owned()
-      })
-      .unwrap_or_default()
-  }
-
-  fn directory_column(&self) -> String {
-    let mut directory = self.directory();
+      .directory_name()
+      .map(|directory| directory.truncate(Self::DIRECTORY_WIDTH).into_owned())
+      .unwrap_or_default();
 
     let width =
       usize::try_from(unicode_display_width::width(&directory)).unwrap();
 
-    directory.push_str(&" ".repeat(Self::DIRECTORY_WIDTH - width));
-    directory
+    directory + &" ".repeat(Self::DIRECTORY_WIDTH.saturating_sub(width))
   }
 
   fn exit_code(&self) -> String {
@@ -94,7 +81,7 @@ impl Choice {
     format!(
       "{:>4}  {}  {:<exit_code_width$}  {}",
       self.relative_age(),
-      self.directory_column(),
+      self.directory(),
       self.exit_code(),
       self.command(),
       exit_code_width = Self::EXIT_CODE_WIDTH,
@@ -110,7 +97,7 @@ impl SkimItem for Choice {
       .add_modifier(Modifier::DIM);
 
     let mut line = ratatui::text::Line::from(Span::styled(
-      format!("{:>4}  {}  ", self.relative_age(), self.directory_column()),
+      format!("{:>4}  {}  ", self.relative_age(), self.directory()),
       metadata,
     ));
 
@@ -157,23 +144,27 @@ mod tests {
       now_ns: NOW,
     };
 
-    assert_eq!(item.row(), " 12s  foo        [1]    bar");
+    let base_style =
+      ratatui::style::Style::default().add_modifier(Modifier::BOLD);
+
+    let metadata = base_style
+      .remove_modifier(Modifier::BOLD)
+      .add_modifier(Modifier::DIM);
+
     assert_eq!(
-      item.display(DisplayContext::default()).to_string(),
-      item.row()
+      item.display(DisplayContext {
+        base_style,
+        ..Default::default()
+      }),
+      ratatui::text::Line::from(vec![
+        Span::styled(
+          format!(" 12s  {:<width$}  ", "foo", width = Choice::DIRECTORY_WIDTH),
+          metadata,
+        ),
+        Span::styled("[1]    ", metadata.fg(Color::Red)),
+        Span::styled("bar", base_style),
+      ]),
     );
-
-    let line = item.display(DisplayContext {
-      base_style: ratatui::style::Style::default().add_modifier(Modifier::BOLD),
-      ..Default::default()
-    });
-
-    assert!(line.spans[0].style.add_modifier.contains(Modifier::DIM));
-    assert!(!line.spans[0].style.add_modifier.contains(Modifier::BOLD));
-    assert!(line.spans[1].style.add_modifier.contains(Modifier::DIM));
-    assert_eq!(line.spans[1].style.fg, Some(Color::Red));
-    assert!(!line.spans[2].style.add_modifier.contains(Modifier::DIM));
-    assert!(line.spans[2].style.add_modifier.contains(Modifier::BOLD));
   }
 
   #[test]
@@ -193,8 +184,8 @@ mod tests {
       );
     }
 
-    case("/foobarbazqux", "foobarba…");
-    case("/foo界界界界", "foo界界…");
+    case("/foobarbazquux", "foobarbazqu…");
+    case("/foo界界界界界", "foo界界界界…");
   }
 
   #[test]
@@ -210,7 +201,7 @@ mod tests {
         now_ns: NOW,
       }
       .row(),
-      "  8m  baz               bar",
+      "  8m  baz                  bar",
     );
   }
 
@@ -226,7 +217,7 @@ mod tests {
         now_ns: NOW,
       }
       .row(),
-      "  0s                    foo  bar",
+      "  0s                       foo  bar",
     );
   }
 
@@ -241,10 +232,11 @@ mod tests {
       now_ns: NOW,
     };
 
-    assert_eq!(item.row(), "                        foo");
+    assert_eq!(item.row(), "                           foo");
+
     assert_eq!(
       item.display(DisplayContext::default()).to_string(),
-      "                        foo",
+      "                           foo",
     );
   }
 
