@@ -6,7 +6,7 @@ pub(crate) struct Choice {
 }
 
 impl Choice {
-  const DIRECTORY_WIDTH: usize = 12;
+  const DIRECTORY_WIDTH: usize = 16;
   const EARLIEST_TIMESTAMP_NS: i64 = 1_000_000_000_000_000_000;
   const EXIT_CODE_WIDTH: usize = 5;
 
@@ -184,8 +184,8 @@ mod tests {
       );
     }
 
-    case("/foobarbazquux", "foobarbazqu…");
-    case("/foo界界界界界", "foo界界界界…");
+    case("/foobarbazfoobarbaz", "foobarbazfoobar…");
+    case("/foo界界界界界界界", "foo界界界界界界…");
   }
 
   #[test]
@@ -201,7 +201,7 @@ mod tests {
         now_ns: NOW,
       }
       .row(),
-      "  8m  baz                  bar",
+      "  8m  baz                      bar",
     );
   }
 
@@ -217,7 +217,7 @@ mod tests {
         now_ns: NOW,
       }
       .row(),
-      "  0s                       foo  bar",
+      "  0s                           foo  bar",
     );
   }
 
@@ -232,11 +232,11 @@ mod tests {
       now_ns: NOW,
     };
 
-    assert_eq!(item.row(), "                           foo");
+    assert_eq!(item.row(), "                               foo");
 
     assert_eq!(
       item.display(DisplayContext::default()).to_string(),
-      "                           foo",
+      "                               foo",
     );
   }
 
