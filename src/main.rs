@@ -38,15 +38,13 @@ use {
   str_ext::StrExt,
   subcommand::Subcommand,
   tally::Tally,
+  tempfile::NamedTempFile,
   unicode_segmentation::UnicodeSegmentation,
   uuid::Uuid,
 };
 
 #[cfg(unix)]
-use {
-  std::os::unix::fs::{OpenOptionsExt, PermissionsExt},
-  xdg::BaseDirectories,
-};
+use {std::os::unix::fs::PermissionsExt, xdg::BaseDirectories};
 
 mod arguments;
 mod choice;
