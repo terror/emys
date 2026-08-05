@@ -352,6 +352,56 @@ fn bash_records_execution() -> Result {
 }
 
 #[test]
+fn bash_uses_only_new_history() -> Result {
+  let script = include_str!("../src/shell/bash/init.bash");
+
+  let mut bash = match Command::new("bash")
+    .args(["--noprofile", "--norc"])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+  {
+    Ok(bash) => bash,
+    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => panic!("failed to run bash: {error}"),
+  };
+
+  bash.stdin.take().unwrap().write_all(
+    formatdoc! {
+      "
+        {script}
+        _honu_preexec() {{ printf '%s\\n' \"$1\"; }}
+        history -c
+        history -s stale
+        _honu_arm
+        trap '_honu_debug \"$?\"' DEBUG
+        true
+        trap - DEBUG
+        history -s fresh
+        __honu_ready=1
+        trap '_honu_debug \"$?\"' DEBUG
+        true
+        "
+    }
+    .as_bytes(),
+  )?;
+
+  let output = bash.wait_with_output()?;
+
+  assert_eq!(
+    (
+      output.status.code(),
+      String::from_utf8(output.stdout)?,
+      String::from_utf8(output.stderr)?,
+    ),
+    (Some(0), "true\nfresh\n".into(), String::new()),
+  );
+
+  Ok(())
+}
+
+#[test]
 fn clear() -> Result {
   let test = Test::new()?;
 
