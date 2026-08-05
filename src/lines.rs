@@ -57,14 +57,24 @@ impl<R: Read> Iterator for Lines<R> {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+  use {super::*, indoc::indoc};
 
   #[test]
   fn preserves_numbers_and_termination() {
     assert_eq!(
-      Lines::new(&b"foo\n\nbar"[..])
-        .collect::<Result<Vec<_>>>()
-        .unwrap(),
+      Lines::new(
+        indoc! {
+          "
+          foo
+
+          bar
+          "
+        }
+        .trim_end()
+        .as_bytes(),
+      )
+      .collect::<Result<Vec<_>>>()
+      .unwrap(),
       [
         Line {
           bytes: b"foo".to_vec(),
