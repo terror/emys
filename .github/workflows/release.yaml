@@ -51,39 +51,40 @@ jobs:
         include:
         - target: aarch64-apple-darwin
           os: macos-latest
-          target_rustflags: ''
+          builder: cargo
         - target: aarch64-unknown-linux-musl
           os: ubuntu-latest
-          target_rustflags: '--codegen linker=aarch64-linux-gnu-gcc'
+          builder: cross
         - target: aarch64-unknown-linux-gnu
           os: ubuntu-latest
-          target_rustflags: '--codegen linker=aarch64-linux-gnu-gcc'
+          builder: cross
         - target: arm-unknown-linux-musleabihf
           os: ubuntu-latest
-          target_rustflags: '--codegen linker=arm-linux-gnueabihf-gcc'
+          builder: cross
         - target: arm-unknown-linux-gnueabihf
           os: ubuntu-latest
-          target_rustflags: '--codegen linker=arm-linux-gnueabihf-gcc'
+          builder: cross
         - target: armv7-unknown-linux-musleabihf
           os: ubuntu-latest
-          target_rustflags: '--codegen linker=arm-linux-gnueabihf-gcc'
+          builder: cross
         - target: armv7-unknown-linux-gnueabihf
           os: ubuntu-latest
-          target_rustflags: '--codegen linker=arm-linux-gnueabihf-gcc'
+          builder: cross
         - target: x86_64-apple-darwin
           os: macos-latest
-          target_rustflags: ''
+          builder: cargo
         - target: x86_64-pc-windows-msvc
           os: windows-latest
+          builder: cargo
         - target: aarch64-pc-windows-msvc
           os: windows-latest
-          target_rustflags: ''
+          builder: cargo
         - target: x86_64-unknown-linux-musl
           os: ubuntu-latest
-          target_rustflags: ''
+          builder: cross
         - target: x86_64-unknown-linux-gnu
           os: ubuntu-latest
-          target_rustflags: ''
+          builder: cross
 
     runs-on: ${{matrix.os}}
 
@@ -92,42 +93,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install AArch64 Toolchain
-      if: ${{ matrix.target == 'aarch64-unknown-linux-musl' || matrix.target == 'aarch64-unknown-linux-gnu' }}
-      run: |
-        sudo apt-get update
-        sudo apt-get install gcc-aarch64-linux-gnu libc6-dev-i386
-
-    - name: Install musl tools
-      if: ${{ contains(matrix.target, 'musl') }}
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y musl-tools
-
-    - name: Install ARM Toolchain
-      if: ${{ contains(matrix.target, 'eabihf') }}
-      run: |
-        sudo apt-get update
-        sudo apt-get install gcc-arm-linux-gnueabihf
-
-    - name: Install AArch64 Toolchain (Windows)
-      if: ${{ matrix.target == 'aarch64-pc-windows-msvc' }}
-      run: rustup target add aarch64-pc-windows-msvc
-
-    - name: Configure compiler for Linux targets
-      run: |
-        if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" || "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-          compiler="gcc"
-        elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-          compiler="aarch64-linux-gnu-gcc"
-        elif [[ "${{ matrix.target }}" == "arm-unknown-linux-musleabihf" || "${{ matrix.target }}" == "arm-unknown-linux-gnueabihf" || "${{ matrix.target }}" == "armv7-unknown-linux-musleabihf" || "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
-          compiler="arm-linux-gnueabihf-gcc"
-        fi
-        {
-          echo "CC=$compiler"
-          echo "CC_${{ matrix.target }}=$compiler"
-          echo "CFLAGS=-D_FORTIFY_SOURCE=0 -O2"
-        } >> "$GITHUB_ENV"
+    - uses: taiki-e/install-action@v2
+      if: ${{ matrix.builder == 'cross' }}
+      with:
+        tool: cross
 
     - name: Package
       id: package
@@ -135,7 +104,7 @@ jobs:
         TARGET: ${{ matrix.target }}
         REF: ${{ github.ref }}
         OS: ${{ matrix.os }}
-        TARGET_RUSTFLAGS: ${{ matrix.target_rustflags }}
+        CARGO: ${{ matrix.builder }}
       run: ./bin/package
       shell: bash
 
