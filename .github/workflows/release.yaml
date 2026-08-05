@@ -113,7 +113,7 @@ jobs:
       run: |
         awk -v ver="${{ github.ref_name }}" '
           $0 ~ "^## \\["ver"\\]" { flag=1; next }
-          flag && /^## \\[/ { exit }
+          flag && /^## \[/ { exit }
           flag { print }
         ' CHANGELOG.md > RELEASE_NOTES.md
 
