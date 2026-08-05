@@ -37,7 +37,7 @@ impl Parser {
         })?;
 
       Ok(Some(Record::new(
-        Entry {
+        Execution {
           command: command.clone(),
           timestamp_ns,
           ..Default::default()
@@ -55,7 +55,7 @@ impl Parser {
         .context("plain history timestamp exceeds SQLite integer range")?;
 
       Ok(Some(Record::new(
-        Entry {
+        Execution {
           command: command.clone(),
           timestamp_ns: self.plain_timestamp_ns,
           ..Default::default()
@@ -137,7 +137,7 @@ mod tests {
         .unwrap(),
       vec![
         Record::new(
-          Entry {
+          Execution {
             command: "foo\nbar\\baz".into(),
             timestamp_ns: 2_000_000_000,
             ..Default::default()
@@ -149,7 +149,7 @@ mod tests {
           ],
         ),
         Record::new(
-          Entry {
+          Execution {
             command: "qux".into(),
             timestamp_ns: 1,
             ..Default::default()
@@ -162,7 +162,7 @@ mod tests {
   }
 
   #[test]
-  fn invalid_entries_are_ignored() {
+  fn invalid_records_are_ignored() {
     assert_eq!(
       Shell::Fish
         .records(&b"foo\n  when: 1\n- cmd:\n  when: 2"[..])
@@ -179,8 +179,8 @@ mod tests {
         .records(&b"- cmd: foo\n  when: bar"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
-        .entry,
-      Entry {
+        .execution,
+      Execution {
         command: "foo".into(),
         timestamp_ns: 1,
         ..Default::default()
@@ -195,7 +195,7 @@ mod tests {
         .records(&b"- cmd: \xFF"[..])
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
-        .entry
+        .execution
         .command,
       "\u{FFFD}",
     );

@@ -1,25 +1,31 @@
 use {
   anyhow::{Context, Error, bail},
   arguments::Arguments,
+  choice::Choice,
   clap::{Parser as Clap, ValueEnum},
+  command::Command,
   database::Database,
-  entry::Entry,
+  execution::Execution,
   imara_diff::{Algorithm, Diff, InternedInput},
   indicatif::{ProgressBar, ProgressStyle},
   line::Line,
   lines::Lines,
   parser::Parser,
   progress::Progress,
-  progress_entry::ProgressEntry,
+  ratatui::{
+    style::{Color, Modifier},
+    text::Span,
+  },
   record::Record,
   records::Records,
   rusqlite::{Connection, MAIN_DB, Transaction, TransactionBehavior, params},
   shell::Shell,
   skim::{
-    Skim, SkimItem, SkimItemSender, options::SkimOptionsBuilder,
-    prelude::bounded,
+    DisplayContext, Skim, SkimItem, SkimItemSender,
+    options::SkimOptionsBuilder, prelude::bounded,
   },
   std::{
+    borrow::Cow,
     env, fs,
     io::{self, BufRead, BufReader, IsTerminal, Read},
     mem,
@@ -29,7 +35,10 @@ use {
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
   },
+  str_ext::StrExt,
   subcommand::Subcommand,
+  tally::Tally,
+  unicode_segmentation::UnicodeSegmentation,
   uuid::Uuid,
 };
 
@@ -40,17 +49,20 @@ use {
 };
 
 mod arguments;
+mod choice;
+mod command;
 mod database;
-mod entry;
+mod execution;
 mod line;
 mod lines;
 mod parser;
 mod progress;
-mod progress_entry;
 mod record;
 mod records;
 mod shell;
+mod str_ext;
 mod subcommand;
+mod tally;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 

@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct Entry {
+pub(crate) struct Execution {
   pub(crate) command: String,
   pub(crate) directory: Option<PathBuf>,
   pub(crate) duration_ns: Option<i64>,
@@ -12,7 +12,7 @@ pub(crate) struct Entry {
   pub(crate) timestamp_ns: i64,
 }
 
-impl Entry {
+impl Execution {
   pub(crate) fn directory(&self) -> Result<Option<&str>> {
     self
       .directory
@@ -20,7 +20,7 @@ impl Entry {
       .map(|directory| {
         directory
           .to_str()
-          .context("entry directory is not valid UTF-8")
+          .context("execution directory is not valid UTF-8")
       })
       .transpose()
   }
@@ -32,10 +32,10 @@ mod tests {
 
   #[test]
   fn directory() {
-    assert_eq!(Entry::default().directory().unwrap(), None);
+    assert_eq!(Execution::default().directory().unwrap(), None);
 
     assert_eq!(
-      Entry {
+      Execution {
         directory: Some("foo".into()),
         ..Default::default()
       }

@@ -1,5 +1,5 @@
 #[derive(Clone, Copy)]
-pub(crate) struct ProgressEntry {
+pub(crate) struct Tally {
   pub(crate) inserted: usize,
   pub(crate) processed: usize,
 }

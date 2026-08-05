@@ -18,8 +18,11 @@ impl Search {
 
     let mut flush_threshold = 1;
 
+    let now_ns =
+      i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos())?;
+
     database.for_each_command(self.limit, |command| {
-      batch.push(Arc::new(command));
+      batch.push(Arc::new(Choice { command, now_ns }));
 
       if batch.len() < flush_threshold {
         return true;
@@ -44,14 +47,25 @@ impl Search {
   }
 
   pub(crate) fn run(self, database: Database) -> Result {
-    if !database.has_entries()? {
+    if !database.has_executions()? {
       return Ok(());
     }
 
     let options = SkimOptionsBuilder::default()
+      .color(
+        "none, \
+         current:6:bold, \
+         matched:-1:underlined, \
+         current_match:6:bold:underlined, \
+         info:-1:dim, \
+         spinner:-1:dim",
+      )
       .height("40%")
+      .info("left")
       .multi(false)
+      .multi_select_icon("")
       .query(&self.query)
+      .selector_icon("")
       .build()?;
 
     let (sender, receiver) = bounded(Self::CHANNEL_CAPACITY);

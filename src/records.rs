@@ -57,7 +57,7 @@ mod tests {
   impl Parser for TestParser {
     fn finish(&mut self) -> Result<Option<Record>> {
       Ok(Some(Record::new(
-        Entry {
+        Execution {
           command: String::from_utf8(mem::take(&mut self.0)).unwrap(),
           ..Default::default()
         },
@@ -83,7 +83,7 @@ mod tests {
       Records::new(&b"foo\nbar"[..], TestParser(Vec::new()))
         .collect::<Result<Vec<_>>>()
         .unwrap()[0]
-        .entry
+        .execution
         .command,
       "foo\nbar",
     );

@@ -5,23 +5,20 @@ const SPINNER_STYLE: &str = "{spinner:.green} ⟪{elapsed_precise}⟫ \
 
 pub(super) struct Progress {
   bar: Option<ProgressBar>,
-  name: &'static str,
 }
 
 impl Progress {
-  const UPDATE_INTERVAL: usize = 256;
-
   pub(super) fn finish(self) {
     if let Some(bar) = self.bar {
       bar.finish_and_clear();
     }
   }
 
-  pub(super) fn new(name: &'static str) -> Result<Self> {
+  pub(super) fn new(message: impl Into<Cow<'static, str>>) -> Result<Self> {
     let bar = if io::stderr().is_terminal() {
       let bar = ProgressBar::new_spinner()
         .with_style(ProgressStyle::with_template(SPINNER_STYLE)?)
-        .with_message(format!("{name}: parsing"));
+        .with_message(message);
 
       bar.enable_steady_tick(Duration::from_millis(50));
 
@@ -30,7 +27,7 @@ impl Progress {
       None
     };
 
-    Ok(Self { bar, name })
+    Ok(Self { bar })
   }
 
   pub(super) fn reader(&self, reader: impl Read + 'static) -> Box<dyn Read> {
@@ -41,19 +38,10 @@ impl Progress {
     }
   }
 
-  pub(super) fn update(&self, entry: ProgressEntry) {
-    if !entry.processed.is_multiple_of(Self::UPDATE_INTERVAL) {
-      return;
+  pub(super) fn set_message(&self, message: impl Into<Cow<'static, str>>) {
+    if let Some(bar) = &self.bar {
+      bar.set_message(message);
     }
-
-    let Some(bar) = &self.bar else {
-      return;
-    };
-
-    bar.set_message(format!(
-      "{}: {} scanned, {} new",
-      self.name, entry.processed, entry.inserted,
-    ));
   }
 }
 
