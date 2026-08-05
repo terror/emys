@@ -1,5 +1,45 @@
 use super::*;
 
+impl Test {
+  fn assert_shell_execution(self, shell: &str, hostname: Option<&str>) -> Self {
+    let directory = self.path("").canonicalize().unwrap();
+    let executions = self.executions();
+
+    pretty_assert_eq!(executions.len(), 1);
+
+    let execution = &executions[0];
+
+    assert!(execution.timestamp_ns > 0);
+    assert!(execution.duration_ns.is_some_and(|duration| duration >= 0));
+
+    let hostname = hostname.map(String::from).or_else(|| {
+      execution
+        .hostname
+        .as_ref()
+        .filter(|hostname| !hostname.is_empty())
+        .cloned()
+    });
+
+    assert!(hostname.is_some());
+
+    pretty_assert_eq!(
+      executions,
+      [Execution {
+        command: "foo".into(),
+        directory: Some(directory),
+        duration_ns: execution.duration_ns,
+        exit_code: Some(1),
+        hostname,
+        session: Some("bar".into()),
+        shell: Some(shell.into()),
+        timestamp_ns: execution.timestamp_ns,
+      }],
+    );
+
+    self
+  }
+}
+
 #[test]
 #[ignore = "requires bash"]
 fn bash_records_execution() {
@@ -9,6 +49,8 @@ fn bash_records_execution() {
     .shell(Shell::Bash)
     .stdin(formatdoc! {
       "
+      HOSTNAME=baz
+      export HONU_SESSION=bar HONU_SHLVL=$SHLVL
       {script}
       _honu_preexec 'foo'
       false
@@ -16,7 +58,7 @@ fn bash_records_execution() {
       "
     })
     .status(1)
-    .assert_execution_count(1);
+    .assert_shell_execution("bash", Some("baz"));
 }
 
 #[test]
@@ -60,6 +102,8 @@ fn fish_records_execution() {
     .shell(Shell::Fish)
     .stdin(formatdoc! {
       "
+      set -gx HONU_SESSION bar
+      set -gx HONU_SHLVL $SHLVL
       {script}
       _honu_preexec 'foo'
       false
@@ -67,7 +111,7 @@ fn fish_records_execution() {
       "
     })
     .status(1)
-    .assert_execution_count(1);
+    .assert_shell_execution("fish", None);
 }
 
 #[test]
@@ -109,6 +153,8 @@ fn zsh_records_execution() {
     .shell(Shell::Zsh)
     .stdin(formatdoc! {
       "
+      HOST=baz
+      typeset -gx HONU_SESSION=bar HONU_SHLVL=$SHLVL
       {script}
       add-zsh-hook -d preexec _honu_preexec
       add-zsh-hook -d precmd _honu_precmd
@@ -119,5 +165,5 @@ fn zsh_records_execution() {
       "
     })
     .status(1)
-    .assert_execution_count(1);
+    .assert_shell_execution("zsh", Some("baz"));
 }
