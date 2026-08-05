@@ -34,8 +34,8 @@ uuid = { version = "1.24.0", features = ["v4"] }
 xdg = "3.0.0"
 
 [dev-dependencies]
-executable-path = "1.0.1"
 indoc = "2.0.7"
+pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
 
 [[test]]

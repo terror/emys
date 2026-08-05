@@ -1210,126 +1210,6 @@ mod tests {
   }
 
   #[test]
-  fn projection_follows_execution_updates_and_deletes() {
-    let database =
-      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
-
-    let first = database
-      .insert(&Execution {
-        command: "foo".into(),
-        timestamp_ns: 1,
-        ..Default::default()
-      })
-      .unwrap();
-
-    let second = database
-      .insert(&Execution {
-        command: "foo".into(),
-        timestamp_ns: 2,
-        ..Default::default()
-      })
-      .unwrap();
-
-    let third = database
-      .insert(&Execution {
-        command: "bar".into(),
-        timestamp_ns: 3,
-        ..Default::default()
-      })
-      .unwrap();
-
-    database
-      .connection()
-      .execute(
-        "UPDATE executions
-         SET command = 'bar', timestamp_ns = 4, exit_code = 5,
-             directory = '/foo'
-         WHERE id = ?1",
-        [second.to_string()],
-      )
-      .unwrap();
-
-    let commands = || {
-      let mut commands = Vec::new();
-
-      database
-        .for_each_command(None, |command| {
-          commands.push(command);
-          true
-        })
-        .unwrap();
-
-      commands
-    };
-
-    assert_eq!(
-      commands(),
-      [
-        Command {
-          text: "bar".into(),
-          timestamp_ns: 4,
-          exit_code: Some(5),
-          directory: Some("/foo".into()),
-        },
-        Command {
-          text: "foo".into(),
-          timestamp_ns: 1,
-          ..Default::default()
-        },
-      ],
-    );
-
-    database
-      .connection()
-      .execute("DELETE FROM executions WHERE id = ?1", [second.to_string()])
-      .unwrap();
-
-    assert_eq!(
-      commands(),
-      [
-        Command {
-          text: "bar".into(),
-          timestamp_ns: 3,
-          ..Default::default()
-        },
-        Command {
-          text: "foo".into(),
-          timestamp_ns: 1,
-          ..Default::default()
-        },
-      ],
-    );
-
-    database
-      .connection()
-      .execute("DELETE FROM executions WHERE id = ?1", [first.to_string()])
-      .unwrap();
-
-    database
-      .connection()
-      .execute("DELETE FROM executions WHERE id = ?1", [third.to_string()])
-      .unwrap();
-
-    assert_eq!(commands(), []);
-
-    assert!(
-      database
-        .connection()
-        .execute(
-          "INSERT INTO commands (
-             text,
-             timestamp_ns,
-             execution_id,
-             exit_code,
-             directory
-           ) VALUES ('foo', 0, 'bar', NULL, NULL)",
-          [],
-        )
-        .is_err(),
-    );
-  }
-
-  #[test]
   fn import_retains_truncated_records_and_preserves_new_duplicates() {
     let database =
       Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
@@ -1591,6 +1471,126 @@ mod tests {
         .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .unwrap(),
       i64::try_from(Database::SCHEMA_VERSION).unwrap(),
+    );
+  }
+
+  #[test]
+  fn projection_follows_execution_updates_and_deletes() {
+    let database =
+      Database::try_from(Connection::open_in_memory().unwrap()).unwrap();
+
+    let first = database
+      .insert(&Execution {
+        command: "foo".into(),
+        timestamp_ns: 1,
+        ..Default::default()
+      })
+      .unwrap();
+
+    let second = database
+      .insert(&Execution {
+        command: "foo".into(),
+        timestamp_ns: 2,
+        ..Default::default()
+      })
+      .unwrap();
+
+    let third = database
+      .insert(&Execution {
+        command: "bar".into(),
+        timestamp_ns: 3,
+        ..Default::default()
+      })
+      .unwrap();
+
+    database
+      .connection()
+      .execute(
+        "UPDATE executions
+         SET command = 'bar', timestamp_ns = 4, exit_code = 5,
+             directory = '/foo'
+         WHERE id = ?1",
+        [second.to_string()],
+      )
+      .unwrap();
+
+    let commands = || {
+      let mut commands = Vec::new();
+
+      database
+        .for_each_command(None, |command| {
+          commands.push(command);
+          true
+        })
+        .unwrap();
+
+      commands
+    };
+
+    assert_eq!(
+      commands(),
+      [
+        Command {
+          text: "bar".into(),
+          timestamp_ns: 4,
+          exit_code: Some(5),
+          directory: Some("/foo".into()),
+        },
+        Command {
+          text: "foo".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+      ],
+    );
+
+    database
+      .connection()
+      .execute("DELETE FROM executions WHERE id = ?1", [second.to_string()])
+      .unwrap();
+
+    assert_eq!(
+      commands(),
+      [
+        Command {
+          text: "bar".into(),
+          timestamp_ns: 3,
+          ..Default::default()
+        },
+        Command {
+          text: "foo".into(),
+          timestamp_ns: 1,
+          ..Default::default()
+        },
+      ],
+    );
+
+    database
+      .connection()
+      .execute("DELETE FROM executions WHERE id = ?1", [first.to_string()])
+      .unwrap();
+
+    database
+      .connection()
+      .execute("DELETE FROM executions WHERE id = ?1", [third.to_string()])
+      .unwrap();
+
+    assert_eq!(commands(), []);
+
+    assert!(
+      database
+        .connection()
+        .execute(
+          "INSERT INTO commands (
+             text,
+             timestamp_ns,
+             execution_id,
+             exit_code,
+             directory
+           ) VALUES ('foo', 0, 'bar', NULL, NULL)",
+          [],
+        )
+        .is_err(),
     );
   }
 

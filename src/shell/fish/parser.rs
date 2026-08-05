@@ -165,7 +165,18 @@ mod tests {
   fn invalid_records_are_ignored() {
     assert_eq!(
       Shell::Fish
-        .records(&b"foo\n  when: 1\n- cmd:\n  when: 2"[..])
+        .records(
+          indoc! {
+            "
+            foo
+              when: 1
+            - cmd:
+              when: 2
+            "
+          }
+          .trim_end()
+          .as_bytes(),
+        )
         .collect::<Result<Vec<_>>>()
         .unwrap(),
       Vec::new(),
