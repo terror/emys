@@ -1,150 +1,7 @@
-use {
-  anyhow::Error,
-  executable_path::executable_path,
-  indoc::formatdoc,
-  rusqlite::Connection,
-  std::{
-    env,
-    ffi::{OsStr, OsString},
-    fs,
-    io::{self, Write},
-    iter::once,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    rc::Rc,
-    str,
-  },
-  tempfile::TempDir,
-};
+use super::*;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-
-type Result<T = (), E = Error> = std::result::Result<T, E>;
-
-#[derive(Debug)]
-struct Test {
-  arguments: Vec<OsString>,
-  environments: Vec<(OsString, OsString)>,
-  expected_status: i32,
-  expected_stderr: String,
-  expected_stdout: String,
-  tempdir: Rc<TempDir>,
-}
-
-impl Test {
-  fn argument(mut self, argument: impl AsRef<OsStr>) -> Self {
-    self.arguments.push(argument.as_ref().to_owned());
-    self
-  }
-
-  fn arguments<I, S>(mut self, arguments: I) -> Self
-  where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-  {
-    self.arguments.extend(
-      arguments
-        .into_iter()
-        .map(|argument| argument.as_ref().to_owned()),
-    );
-
-    self
-  }
-
-  fn command(&self) -> Self {
-    Self {
-      arguments: Vec::new(),
-      environments: Vec::new(),
-      expected_status: 0,
-      expected_stderr: String::new(),
-      expected_stdout: String::new(),
-      tempdir: Rc::clone(&self.tempdir),
-    }
-  }
-
-  fn database(&self) -> Result<Connection> {
-    Ok(Connection::open(self.path("honu/history.db"))?)
-  }
-
-  fn environment(
-    mut self,
-    key: impl AsRef<OsStr>,
-    value: impl AsRef<OsStr>,
-  ) -> Self {
-    self
-      .environments
-      .push((key.as_ref().to_owned(), value.as_ref().to_owned()));
-
-    self
-  }
-
-  fn expected_status(self, expected_status: i32) -> Self {
-    Self {
-      expected_status,
-      ..self
-    }
-  }
-
-  fn expected_stderr(self, expected_stderr: &str) -> Self {
-    Self {
-      expected_stderr: expected_stderr.into(),
-      ..self
-    }
-  }
-
-  fn expected_stdout(self, expected_stdout: &str) -> Self {
-    Self {
-      expected_stdout: expected_stdout.into(),
-      ..self
-    }
-  }
-
-  fn new() -> Result<Self> {
-    Ok(Self {
-      arguments: Vec::new(),
-      environments: Vec::new(),
-      expected_status: 0,
-      expected_stderr: String::new(),
-      expected_stdout: String::new(),
-      tempdir: Rc::new(TempDir::with_prefix("honu-test")?),
-    })
-  }
-
-  fn path(&self, path: impl AsRef<Path>) -> PathBuf {
-    self.tempdir.path().join(path)
-  }
-
-  fn run(self) -> Result<String> {
-    let output = Command::new(executable_path(env!("CARGO_PKG_NAME")))
-      .env("XDG_DATA_HOME", self.tempdir.path())
-      .envs(self.environments)
-      .args(self.arguments)
-      .output()?;
-
-    let normalize = |text: &str| {
-      text
-        .replace(&self.tempdir.path().display().to_string(), "[ROOT]")
-        .replace('\\', "/")
-    };
-
-    let stderr = normalize(str::from_utf8(&output.stderr)?);
-
-    assert_eq!(
-      output.status.code(),
-      Some(self.expected_status),
-      "unexpected exit status\nstderr: {stderr}",
-    );
-
-    assert_eq!(stderr, self.expected_stderr);
-
-    let stdout = normalize(str::from_utf8(&output.stdout)?);
-
-    assert_eq!(stdout, self.expected_stdout);
-
-    Ok(stdout)
-  }
-}
 
 #[test]
 fn add_record() -> Result {
@@ -250,158 +107,6 @@ fn backup() -> Result {
 }
 
 #[test]
-fn bash_records_execution() -> Result {
-  let test = Test::new()?;
-
-  test
-    .command()
-    .arguments(["init", "bash"])
-    .expected_stdout(
-      &include_str!("../src/shell/bash/init.bash").replace('\\', "/"),
-    )
-    .run()?;
-
-  let script = include_str!("../src/shell/bash/init.bash");
-
-  let path = env::join_paths(
-    once(
-      executable_path(env!("CARGO_PKG_NAME"))
-        .parent()
-        .unwrap()
-        .to_path_buf(),
-    )
-    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
-  )?;
-
-  let mut bash = match Command::new("bash")
-    .args(["--noprofile", "--norc"])
-    .env("PATH", path)
-    .env("XDG_DATA_HOME", test.tempdir.path())
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(bash) => bash,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run bash: {error}"),
-  };
-
-  bash.stdin.take().unwrap().write_all(
-    formatdoc! {
-      "
-        {script}
-        _honu_preexec 'foo'
-        false
-        _honu_precmd
-        "
-    }
-    .as_bytes(),
-  )?;
-
-  let output = bash.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.code(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (Some(1), String::new(), String::new()),
-  );
-
-  assert_eq!(
-    test.database()?.query_row(
-      "SELECT
-        COUNT(*),
-        command,
-        exit_code,
-        directory,
-        session <> '',
-        shell,
-        timestamp_ns > 0,
-        duration_ns IS NULL OR duration_ns >= 0
-      FROM executions",
-      [],
-      |row| {
-        Ok((
-          row.get::<_, i64>(0)?,
-          row.get::<_, String>(1)?,
-          row.get::<_, i32>(2)?,
-          row.get::<_, String>(3)?,
-          row.get::<_, bool>(4)?,
-          row.get::<_, String>(5)?,
-          row.get::<_, bool>(6)?,
-          row.get::<_, bool>(7)?,
-        ))
-      },
-    )?,
-    (
-      1,
-      "foo".into(),
-      1,
-      env::current_dir()?.to_string_lossy().replace('\\', "/"),
-      true,
-      "bash".into(),
-      true,
-      true,
-    ),
-  );
-
-  Ok(())
-}
-
-#[test]
-fn bash_uses_only_new_history() -> Result {
-  let script = include_str!("../src/shell/bash/init.bash");
-
-  let mut bash = match Command::new("bash")
-    .args(["--noprofile", "--norc"])
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(bash) => bash,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run bash: {error}"),
-  };
-
-  bash.stdin.take().unwrap().write_all(
-    formatdoc! {
-      "
-        {script}
-        _honu_preexec() {{ printf '%s\\n' \"$1\"; }}
-        history -c
-        history -s stale
-        _honu_arm
-        trap '_honu_debug \"$?\"' DEBUG
-        true
-        trap - DEBUG
-        history -s fresh
-        __honu_ready=1
-        trap '_honu_debug \"$?\"' DEBUG
-        true
-        "
-    }
-    .as_bytes(),
-  )?;
-
-  let output = bash.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.code(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (Some(0), "true\nfresh\n".into(), String::new()),
-  );
-
-  Ok(())
-}
-
-#[test]
 fn clear() -> Result {
   let test = Test::new()?;
 
@@ -426,111 +131,6 @@ fn clear() -> Result {
       |row| { row.get::<_, i64>(0) }
     )?,
     0,
-  );
-
-  Ok(())
-}
-
-#[test]
-fn fish_records_execution() -> Result {
-  let test = Test::new()?;
-
-  test
-    .command()
-    .arguments(["init", "fish"])
-    .expected_stdout(
-      &include_str!("../src/shell/fish/init.fish").replace('\\', "/"),
-    )
-    .run()?;
-
-  let script = include_str!("../src/shell/fish/init.fish");
-
-  let path = env::join_paths(
-    once(
-      executable_path(env!("CARGO_PKG_NAME"))
-        .parent()
-        .unwrap()
-        .to_path_buf(),
-    )
-    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
-  )?;
-
-  let mut fish = match Command::new("fish")
-    .arg("--no-config")
-    .env("PATH", path)
-    .env("XDG_DATA_HOME", test.tempdir.path())
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(fish) => fish,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run fish: {error}"),
-  };
-
-  fish.stdin.take().unwrap().write_all(
-    formatdoc! {
-      "
-        {script}
-        _honu_preexec 'foo'
-        false
-        _honu_postexec
-        "
-    }
-    .as_bytes(),
-  )?;
-
-  let output = fish.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.code(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (Some(1), String::new(), String::new()),
-  );
-
-  assert_eq!(
-    test.database()?.query_row(
-      "SELECT
-        COUNT(*),
-        command,
-        exit_code,
-        directory,
-        session <> '',
-        hostname <> '',
-        shell,
-        timestamp_ns > 0,
-        duration_ns IS NULL OR duration_ns >= 0
-      FROM executions",
-      [],
-      |row| {
-        Ok((
-          row.get::<_, i64>(0)?,
-          row.get::<_, String>(1)?,
-          row.get::<_, i32>(2)?,
-          row.get::<_, String>(3)?,
-          row.get::<_, bool>(4)?,
-          row.get::<_, bool>(5)?,
-          row.get::<_, String>(6)?,
-          row.get::<_, bool>(7)?,
-          row.get::<_, bool>(8)?,
-        ))
-      },
-    )?,
-    (
-      1,
-      "foo".into(),
-      1,
-      env::current_dir()?.to_string_lossy().into_owned(),
-      true,
-      true,
-      "fish".into(),
-      true,
-      true,
-    ),
   );
 
   Ok(())
@@ -600,6 +200,7 @@ fn import_defaults_are_shell_specific() -> Result {
   let zsh_history = test.path(".zsh_history");
 
   fs::create_dir(test.path("fish"))?;
+
   fs::write(&bash_history, "foo\n")?;
   fs::write(&fish_history, "- cmd: baz\n  when: 2\n")?;
   fs::write(&other_history, "qux\n")?;
@@ -773,9 +374,7 @@ fn import_zsh() -> Result {
 
 #[test]
 fn init_bash() -> Result {
-  let test = Test::new()?;
-
-  test
+  Test::new()?
     .command()
     .arguments(["init", "bash"])
     .expected_stdout(
@@ -783,41 +382,12 @@ fn init_bash() -> Result {
     )
     .run()?;
 
-  let script = include_str!("../src/shell/bash/init.bash");
-
-  let mut bash = match Command::new("bash")
-    .arg("-n")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(bash) => bash,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run bash: {error}"),
-  };
-
-  bash.stdin.take().unwrap().write_all(script.as_bytes())?;
-
-  let output = bash.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.success(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (true, String::new(), String::new()),
-  );
-
   Ok(())
 }
 
 #[test]
 fn init_fish() -> Result {
-  let test = Test::new()?;
-
-  test
+  Test::new()?
     .command()
     .arguments(["init", "fish"])
     .expected_stdout(
@@ -825,79 +395,15 @@ fn init_fish() -> Result {
     )
     .run()?;
 
-  let script = include_str!("../src/shell/fish/init.fish");
-
-  let mut fish = match Command::new("fish")
-    .arg("-n")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(fish) => fish,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run fish: {error}"),
-  };
-
-  fish.stdin.take().unwrap().write_all(script.as_bytes())?;
-
-  let output = fish.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.success(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (true, String::new(), String::new()),
-  );
-
   Ok(())
 }
 
 #[test]
 fn init_zsh() -> Result {
-  let test = Test::new()?;
-
-  let script = test
+  Test::new()?
     .command()
     .arguments(["init", "zsh"])
     .expected_stdout(include_str!("../src/shell/zsh/init.zsh"))
-    .run()?;
-
-  let mut zsh = match Command::new("zsh")
-    .arg("-n")
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(zsh) => zsh,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run zsh: {error}"),
-  };
-
-  zsh.stdin.take().unwrap().write_all(script.as_bytes())?;
-
-  let output = zsh.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.success(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (true, String::new(), String::new()),
-  );
-
-  Ok(())
-}
-
-#[test]
-fn search_empty() -> Result {
-  Test::new()?
-    .command()
-    .arguments(["search", "--", "foo"])
     .run()?;
 
   Ok(())
@@ -929,105 +435,11 @@ fn list() -> Result {
 }
 
 #[test]
-fn zsh_records_execution() -> Result {
-  let test = Test::new()?;
-
-  let script = test
+fn search_empty() -> Result {
+  Test::new()?
     .command()
-    .arguments(["init", "zsh"])
-    .expected_stdout(include_str!("../src/shell/zsh/init.zsh"))
+    .arguments(["search", "--", "foo"])
     .run()?;
-
-  let path = env::join_paths(
-    once(
-      executable_path(env!("CARGO_PKG_NAME"))
-        .parent()
-        .unwrap()
-        .to_path_buf(),
-    )
-    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
-  )?;
-
-  let mut zsh = match Command::new("zsh")
-    .arg("-f")
-    .env("PATH", path)
-    .env("XDG_DATA_HOME", test.tempdir.path())
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-  {
-    Ok(zsh) => zsh,
-    Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-    Err(error) => panic!("failed to run zsh: {error}"),
-  };
-
-  zsh.stdin.take().unwrap().write_all(
-    formatdoc! {
-      "
-        {script}
-        add-zsh-hook -d preexec _honu_preexec
-        add-zsh-hook -d precmd _honu_precmd
-        _honu_preexec 'foo'
-        false
-        _honu_precmd
-        _honu_precmd
-        "
-    }
-    .as_bytes(),
-  )?;
-
-  let output = zsh.wait_with_output()?;
-
-  assert_eq!(
-    (
-      output.status.code(),
-      String::from_utf8(output.stdout)?,
-      String::from_utf8(output.stderr)?,
-    ),
-    (Some(1), String::new(), String::new()),
-  );
-
-  assert_eq!(
-    test.database()?.query_row(
-      "SELECT
-        COUNT(*),
-        command,
-        exit_code,
-        directory,
-        session <> '',
-        hostname <> '',
-        shell,
-        timestamp_ns > 0,
-        duration_ns >= 0
-      FROM executions",
-      [],
-      |row| {
-        Ok((
-          row.get::<_, i64>(0)?,
-          row.get::<_, String>(1)?,
-          row.get::<_, i32>(2)?,
-          row.get::<_, String>(3)?,
-          row.get::<_, bool>(4)?,
-          row.get::<_, bool>(5)?,
-          row.get::<_, String>(6)?,
-          row.get::<_, bool>(7)?,
-          row.get::<_, bool>(8)?,
-        ))
-      },
-    )?,
-    (
-      1,
-      "foo".into(),
-      1,
-      env::current_dir()?.to_string_lossy().into_owned(),
-      true,
-      true,
-      "zsh".into(),
-      true,
-      true,
-    ),
-  );
 
   Ok(())
 }

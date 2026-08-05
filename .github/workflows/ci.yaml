@@ -81,6 +81,22 @@ jobs:
     - name: Check
       run: cargo check
 
+  shell:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Shells
+      run: |
+        sudo apt-get update
+        sudo apt-get install bash fish zsh
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Test Shells
+      run: 'cargo test --test integration shell:: -- --ignored'
+
   test:
     strategy:
       matrix:
