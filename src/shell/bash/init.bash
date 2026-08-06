@@ -121,7 +121,9 @@ _honu_debug \"\$?\"" DEBUG
   if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
     PROMPT_COMMAND=(_honu_precmd "${PROMPT_COMMAND[@]}" _honu_arm)
   else
-    PROMPT_COMMAND="_honu_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND};_honu_arm"
+    PROMPT_COMMAND="_honu_precmd
+${PROMPT_COMMAND-}
+_honu_arm"
   fi
 
   bind -x '"\C-r":_honu_search'

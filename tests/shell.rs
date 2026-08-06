@@ -21,6 +21,36 @@ fn bash_records_execution() {
 
 #[test]
 #[ignore = "requires bash"]
+fn bash_preserves_scalar_prompt_command() {
+  Test::new()
+    .shell(Shell::Bash)
+    .write("init.bash", include_str!("../src/shell/bash/init.bash"))
+    .write(
+      "case.bash",
+      indoc! {
+        r#"
+        PROMPT_COMMAND='printf "%s\n" foo;'
+        source init.bash
+        trap - DEBUG
+        _honu_precmd() { printf '%s\n' precmd; }
+        _honu_arm() { printf '%s\n' arm; }
+        eval "$PROMPT_COMMAND"
+        "#
+      },
+    )
+    .stdin("bash --noprofile --norc -ic 'source case.bash' 2>/dev/null")
+    .stdout(indoc! {
+      "
+      precmd
+      foo
+      arm
+      "
+    })
+    .success();
+}
+
+#[test]
+#[ignore = "requires bash"]
 fn bash_uses_only_new_history() {
   let script = include_str!("../src/shell/bash/init.bash");
 
