@@ -8,6 +8,11 @@ set -g __honu_directory
 set -g __honu_started_at_ns
 
 function _honu_preexec --on-event fish_preexec
+  if test -n "$fish_private_mode"
+    set -e __honu_command
+    return
+  end
+
   set -g __honu_command "$argv[1]"
   set -g __honu_directory "$PWD"
   set -l started_at (command date +%s)
