@@ -77,6 +77,8 @@ fn fish_private_mode_is_not_recorded() {
   let script = include_str!("../src/shell/fish/init.fish");
 
   Test::new()
+    .argument("list")
+    .success()
     .shell(Shell::Fish)
     .stdin(formatdoc! {
       "
