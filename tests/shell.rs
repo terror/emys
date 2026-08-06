@@ -61,6 +61,7 @@ fn fish_records_execution() {
     .stdin(formatdoc! {
       "
       {script}
+      set -e fish_private_mode
       _honu_preexec 'foo'
       false
       _honu_postexec
@@ -68,6 +69,25 @@ fn fish_records_execution() {
     })
     .status(1)
     .assert_execution_count(1);
+}
+
+#[test]
+#[ignore = "requires fish"]
+fn fish_private_mode_is_not_recorded() {
+  let script = include_str!("../src/shell/fish/init.fish");
+
+  Test::new()
+    .shell(Shell::Fish)
+    .stdin(formatdoc! {
+      "
+      {script}
+      set -g fish_private_mode 1
+      _honu_preexec 'foo'
+      _honu_postexec
+      "
+    })
+    .success()
+    .assert_execution_count(0);
 }
 
 #[test]
