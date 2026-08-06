@@ -68,7 +68,10 @@ _honu_debug() {
   local exit_code="$1"
   local command="$BASH_COMMAND"
 
-  if [[ -z "$__honu_ready" || "$command" == _honu_precmd || "$command" == _honu_arm ]]; then
+  if [[ -z "$__honu_ready" ||
+    "$command" == _honu_precmd ||
+    "$command" == _honu_arm ||
+    "$command" == _honu_search ]]; then
     return "$exit_code"
   fi
 

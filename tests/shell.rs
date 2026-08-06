@@ -21,6 +21,29 @@ fn bash_records_execution() {
 
 #[test]
 #[ignore = "requires bash"]
+fn bash_search_preserves_capture() {
+  let script = include_str!("../src/shell/bash/init.bash");
+
+  Test::new()
+    .shell(Shell::Bash)
+    .stdin(formatdoc! {
+      "
+      {script}
+      _honu_preexec() {{ printf '%s\\n' \"$1\"; }}
+      _honu_search() {{ :; }}
+      history -c
+      _honu_arm
+      trap '_honu_debug \"$?\"' DEBUG
+      _honu_search
+      true
+      "
+    })
+    .stdout("true\n")
+    .success();
+}
+
+#[test]
+#[ignore = "requires bash"]
 fn bash_preserves_scalar_prompt_command() {
   Test::new()
     .shell(Shell::Bash)
