@@ -47,6 +47,7 @@ uuid = { version = "1.24.0", features = ["v4"] }
 xdg = "3.0.0"
 
 [dev-dependencies]
+expectrl = "0.9.0"
 indoc = "2.0.7"
 pretty_assertions = "1.4.1"
 

@@ -1,4 +1,71 @@
 use super::*;
+use expectrl::{Eof, Expect, Session};
+
+#[test]
+#[ignore = "requires bash and a PTY"]
+fn bash_installed_hooks_record_execution_once() {
+  let test = Test::new();
+
+  let path = env::join_paths(
+    once(
+      Path::new(env!("CARGO_BIN_EXE_honu"))
+        .parent()
+        .unwrap()
+        .to_path_buf(),
+    )
+    .chain(env::split_paths(&env::var_os("PATH").unwrap_or_default())),
+  )
+  .unwrap();
+
+  let mut command = Command::new(Shell::Bash.name());
+
+  command
+    .current_dir(test.tempdir.path())
+    .env("HOME", test.tempdir.path())
+    .env("HOSTNAME", "foo")
+    .env("PATH", path)
+    .env("PS1", "honu-test> ")
+    .env("PS2", "")
+    .env("XDG_DATA_HOME", test.tempdir.path())
+    .args(Shell::Bash.arguments());
+
+  let mut session = Session::spawn(command).unwrap();
+  session.set_expect_timeout(Some(std::time::Duration::from_secs(10)));
+  session.expect("honu-test> ").unwrap();
+
+  for _ in 0..2 {
+    session.send_line("eval \"$(honu init bash)\"").unwrap();
+    session.expect("honu-test> ").unwrap();
+  }
+
+  session.send_line("false").unwrap();
+  session.expect("honu-test> ").unwrap();
+  session.send_line("exit").unwrap();
+  session.expect(Eof).unwrap();
+
+  let executions = test.executions();
+
+  pretty_assert_eq!(executions.len(), 1);
+
+  let execution = &executions[0];
+
+  pretty_assert_eq!(execution.command, "false");
+  pretty_assert_eq!(
+    execution.directory,
+    Some(test.tempdir.path().canonicalize().unwrap()),
+  );
+  assert!(execution.duration_ns.is_some_and(|duration| duration >= 0));
+  pretty_assert_eq!(execution.exit_code, Some(1));
+  pretty_assert_eq!(execution.hostname.as_deref(), Some("foo"));
+  assert!(
+    execution
+      .session
+      .as_ref()
+      .is_some_and(|session| !session.is_empty())
+  );
+  pretty_assert_eq!(execution.shell.as_deref(), Some("bash"));
+  assert!(execution.timestamp_ns > 0);
+}
 
 #[test]
 #[ignore = "requires bash"]
