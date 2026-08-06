@@ -76,9 +76,7 @@ fn fish_records_execution() {
 fn fish_private_mode_is_not_recorded() {
   let script = include_str!("../src/shell/fish/init.fish");
 
-  Test::new()
-    .argument("list")
-    .success()
+  let test = Test::new()
     .shell(Shell::Fish)
     .stdin(formatdoc! {
       "
@@ -88,8 +86,9 @@ fn fish_private_mode_is_not_recorded() {
       _honu_postexec
       "
     })
-    .success()
-    .assert_execution_count(0);
+    .success();
+
+  assert!(!test.path("honu/history.db").try_exists().unwrap());
 }
 
 #[test]
